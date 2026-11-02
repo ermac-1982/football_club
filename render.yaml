@@ -1,0 +1,31 @@
+# Render Blueprint: FastAPI + Streamlit
+# Dashboard: New > Blueprint > connect this repo
+# https://dashboard.render.com/blueprints
+
+services:
+  - type: web
+    name: football-club-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn api:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.11"
+
+  - type: web
+    name: football-club-web
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true --browser.gatherUsageStats false
+    healthCheckPath: /_stcore/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.11"
+      - key: API_HOSTPORT
+        fromService:
+          name: football-club-api
+          type: web
+          property: hostport
