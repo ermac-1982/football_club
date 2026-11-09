@@ -2,7 +2,7 @@
 
 FastAPI backend, Streamlit frontend, and PostgreSQL for accounts.
 
-People register with a first name, email, password, and account type (`Coach / Admin` or `Player`). A 6-digit code verifies the email during registration. Later sign-ins use that password. Google sign-in is also available.
+People register with a first name, email, password, and account type (`Coach / Admin` or `Player`). Later sign-ins use that email and password. Google sign-in is also available.
 
 ## Local setup
 
@@ -38,8 +38,6 @@ streamlit run app.py
 
 Open the Streamlit URL (usually http://localhost:8501).
 
-Until `SMTP_HOST` is set, local email codes are shown in the app instead of being emailed. Set `APP_ENV=production` only when email delivery is configured. Production never returns the code in the API response.
-
 ### Google sign-in
 
 1. In Google Cloud, create an OAuth client of type **Web application**.
@@ -65,8 +63,7 @@ The UI talks to the API over Render's private network (`API_HOSTPORT`). Override
 3. Connect the repo. Render reads `render.yaml`.
 4. For `DATABASE_URL`, paste the **Internal Database URL** from the existing Render Postgres database. Do not create another database.
 5. Google client id and secret can be left empty until Google sign-in is ready.
-6. For email codes in production, set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, and `SMTP_FROM` on the API service. Until those are set, registration cannot send a code.
-7. Create the Blueprint. Open the `football-club-web` URL when the deploys are live.
+6. Create the Blueprint. Open the `football-club-web` URL when the deploys are live.
 
 Local development keeps using your installed Postgres database. Production uses the Render database.
 

@@ -26,10 +26,9 @@ from auth_service import (
     google_authorize_url,
     public_user,
     login_with_password,
-    request_email_code,
+    register_account,
     session_payload,
     user_from_session,
-    verify_email_code,
 )
 from avatar_service import save_avatar, skip_avatar
 from club_service import (
@@ -65,12 +64,11 @@ app.add_middleware(
 )
 
 
-class EmailCodeRequest(BaseModel):
+class RegisterRequest(BaseModel):
     email: EmailStr
-    purpose: Literal["register"]
-    first_name: Optional[str] = None
-    account_type: Optional[Literal["coach_admin", "player"]] = None
-    password: Optional[str] = None
+    first_name: str
+    account_type: Literal["coach_admin", "player"]
+    password: str
 
     @field_validator("email")
     @classmethod
@@ -81,16 +79,6 @@ class EmailCodeRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
-
-    @field_validator("email")
-    @classmethod
-    def lowercase_email(cls, value: str) -> str:
-        return value.strip().lower()
-
-
-class EmailCodeVerify(BaseModel):
-    email: EmailStr
-    code: str
 
     @field_validator("email")
     @classmethod
@@ -169,44 +157,22 @@ def providers() -> dict[str, bool]:
     return {
         "google": settings.google_enabled(),
         "email": True,
-        "email_delivery": settings.smtp_configured(),
     }
 
 
-@app.post("/auth/email/request")
-def email_request(body: EmailCodeRequest, db: Session = Depends(get_db)) -> dict:
+@app.post("/auth/register")
+def register(body: RegisterRequest, db: Session = Depends(get_db)) -> dict:
     try:
-        dev_code = request_email_code(
-            db,
-            body.email,
-            body.purpose,
-            body.first_name,
-            body.account_type,
-            body.password,
-        )
+        user = register_account(db, body.email, body.first_name, body.account_type, body.password)
     except AuthError as exc:
         raise _auth_http(exc) from exc
-    if dev_code:
-        return {
-            "message": "Email delivery is not configured, so use the code shown in the app.",
-            "dev_code": dev_code,
-        }
-    return {"message": f"We sent a 6-digit code to {body.email}."}
+    return session_payload(user)
 
 
 @app.post("/auth/login")
 def login(body: LoginRequest, db: Session = Depends(get_db)) -> dict:
     try:
         user = login_with_password(db, body.email, body.password)
-    except AuthError as exc:
-        raise _auth_http(exc) from exc
-    return session_payload(user)
-
-
-@app.post("/auth/email/verify")
-def email_verify(body: EmailCodeVerify, db: Session = Depends(get_db)) -> dict:
-    try:
-        user = verify_email_code(db, body.email, body.code)
     except AuthError as exc:
         raise _auth_http(exc) from exc
     return session_payload(user)

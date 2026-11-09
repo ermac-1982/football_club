@@ -646,18 +646,6 @@ def google_section() -> None:
         )
 
 
-def code_button_label() -> str:
-    if (st.session_state.providers or {}).get("email_delivery"):
-        return "Email me a code"
-    return "Show me a code"
-
-
-def local_code_note() -> None:
-    if (st.session_state.providers or {}).get("email_delivery"):
-        return
-    st.caption("No email is sent while testing. The 6-digit code appears on the next screen.")
-
-
 def render_register() -> None:
     st.subheader("Create an account")
     st.caption("We store your first name, email, account type, and a user ID.")
@@ -675,9 +663,7 @@ def render_register() -> None:
     confirm_password = st.text_input(
         "Confirm password", type="password", key="register_password_confirm"
     )
-    st.caption("A 6-digit code verifies this email. After that, you log in with your password.")
-    local_code_note()
-    if st.button(code_button_label(), type="primary"):
+    if st.button("Create account", type="primary"):
         if not first_name.strip():
             st.warning("Enter your first name.")
             return
@@ -694,13 +680,12 @@ def render_register() -> None:
             st.warning("Those passwords do not match.")
             return
         try:
-            with st.spinner("Sending code"):
+            with st.spinner("Creating your account"):
                 data = api_request(
                     "POST",
-                    "/auth/email/request",
+                    "/auth/register",
                     {
                         "email": email.strip(),
-                        "purpose": "register",
                         "first_name": first_name.strip(),
                         "account_type": account_type,
                         "password": password,
@@ -709,13 +694,7 @@ def render_register() -> None:
         except ApiError as exc:
             st.error(exc.message)
             return
-        st.session_state.pending_email = {
-            "email": email.strip().lower(),
-            "purpose": "register",
-            "first_name": first_name.strip(),
-            "account_type": account_type,
-            "dev_code": data.get("dev_code"),
-        }
+        apply_session(data)
         st.rerun()
     google_section()
 
@@ -744,52 +723,6 @@ def render_login() -> None:
         apply_session(data)
         st.rerun()
     google_section()
-
-
-def render_code() -> None:
-    pending = st.session_state.pending_email
-    st.subheader("Confirm your email")
-    st.write(f"Use the 6-digit code for **{pending['email']}**.")
-    if pending.get("dev_code"):
-        st.warning("No email was sent. Email delivery is not set up on this machine.")
-        code = escape(str(pending["dev_code"]))
-        st.markdown(
-            f'<div class="volt-charge"><strong>{code}</strong><span class="volt-sparks">✦ ✦ ✦</span></div>',
-            unsafe_allow_html=True,
-        )
-    with st.form("email-code"):
-        code = st.text_input("6-digit code", max_chars=6)
-        submitted = st.form_submit_button("Confirm", type="primary")
-    if submitted:
-        try:
-            with st.spinner("Checking code"):
-                data = api_request(
-                    "POST",
-                    "/auth/email/verify",
-                    {"email": pending["email"], "code": code},
-                )
-        except ApiError as exc:
-            st.error(exc.message)
-        else:
-            apply_session(data)
-            st.rerun()
-    col_resend, col_back = st.columns(2)
-    if col_resend.button("Send a new code"):
-        payload = {"email": pending["email"], "purpose": pending["purpose"]}
-        if pending["purpose"] == "register":
-            payload["first_name"] = pending["first_name"]
-            payload["account_type"] = pending["account_type"]
-        try:
-            data = api_request("POST", "/auth/email/request", payload)
-        except ApiError as exc:
-            st.error(exc.message)
-        else:
-            pending["dev_code"] = data.get("dev_code")
-            st.session_state.pending_email = pending
-            st.success("A new code is ready.")
-    if col_back.button("Back"):
-        st.session_state.pending_email = None
-        st.rerun()
 
 
 def render_google_finish() -> None:
@@ -848,9 +781,6 @@ def render_auth() -> None:
     if st.session_state.google_pending:
         render_google_finish()
         return
-    if st.session_state.pending_email:
-        render_code()
-        return
     mode = st.radio("Account", ["Register", "Log in"], horizontal=True)
     if mode == "Register":
         render_register()
@@ -906,7 +836,7 @@ def main() -> None:
     inject_theme()
     init_state()
     providers = st.session_state.providers
-    if providers is None or providers.get("api_down") or "email_delivery" not in providers:
+    if providers is None or providers.get("api_down"):
         st.session_state.providers = load_providers()
     consume_handoff()
     user = st.session_state.user if st.session_state.token else None

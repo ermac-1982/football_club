@@ -5,10 +5,8 @@ import hashlib
 import hmac
 import logging
 import secrets
-import smtplib
 import uuid
 from datetime import datetime, timedelta, timezone
-from email.message import EmailMessage
 from urllib.parse import urlencode
 
 import httpx
@@ -25,9 +23,6 @@ from db import EmailCode, Handoff, Identity, User, utcnow
 logger = logging.getLogger("football_club.auth")
 
 SESSION_DAYS = 14
-CODE_MINUTES = 10
-CODE_ATTEMPTS = 5
-RESEND_SECONDS = 30
 PASSWORD_ITERATIONS = 310_000
 
 
@@ -107,13 +102,6 @@ def _aware(value: datetime) -> datetime:
     return value
 
 
-def _digits(code: str) -> str:
-    digits = "".join(char for char in code if char.isdigit())
-    if len(digits) != 6:
-        raise AuthError(400, "Enter the 6-digit code.")
-    return digits
-
-
 def public_user(user: User) -> dict:
     from avatar_service import public_avatar
 
@@ -181,142 +169,18 @@ def _sweep_expired(db: Session) -> None:
     db.query(Handoff).filter(Handoff.expires_at < now).delete(synchronize_session=False)
 
 
-def _send_code(email: str, code: str) -> bool:
-    if not settings.smtp_configured():
-        return False
-    message = EmailMessage()
-    message["Subject"] = "Verify your Football Club email"
-    message["From"] = settings.SMTP_FROM
-    message["To"] = email
-    message.set_content(
-        f"Your Football Club verification code is {code}.\n\n"
-        f"It expires in {CODE_MINUTES} minutes. "
-        "If you did not request it, you can ignore this email.\n"
-    )
-    if settings.SMTP_PORT == 465:
-        with smtplib.SMTP_SSL(settings.SMTP_HOST, settings.SMTP_PORT, timeout=20) as smtp:
-            if settings.SMTP_USERNAME:
-                smtp.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
-            smtp.send_message(message)
-    else:
-        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=20) as smtp:
-            if settings.SMTP_USE_TLS:
-                smtp.starttls()
-            if settings.SMTP_USERNAME:
-                smtp.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
-            smtp.send_message(message)
-    return True
-
-
-def request_email_code(
+def register_account(
     db: Session,
     email: str,
-    purpose: str,
-    first_name: str | None = None,
-    account_type: str | None = None,
-    password: str | None = None,
-) -> str | None:
+    first_name: str,
+    account_type: str,
+    password: str,
+) -> User:
     email = normalize_email(email)
-    if purpose != "register":
-        raise AuthError(400, "Log in with your email and password.")
-
-    cleaned_name = clean_first_name(first_name)
-    if account_type not in ACCOUNT_TYPES:
-        raise AuthError(400, "Choose an account type.")
+    _validate_password(password)
     if db.query(User).filter(User.email == email).one_or_none():
         raise AuthError(409, "An account with this email already exists. Log in instead.")
-
-    now = utcnow()
-    _sweep_expired(db)
-    recent = (
-        db.query(EmailCode)
-        .filter(EmailCode.email == email, EmailCode.expires_at > now)
-        .order_by(EmailCode.created_at.desc())
-        .first()
-    )
-    if recent and _aware(recent.created_at) > now - timedelta(seconds=RESEND_SECONDS):
-        raise AuthError(429, "Wait a moment before requesting another code.")
-
-    if password:
-        _validate_password(password)
-        password_hash = hash_password(password)
-    elif recent and recent.password_hash:
-        password_hash = recent.password_hash
-    else:
-        raise AuthError(400, "Enter a password of at least 8 characters.")
-
-    db.query(EmailCode).filter(EmailCode.email == email).delete(synchronize_session=False)
-    code = f"{secrets.randbelow(1_000_000):06d}"
-    db.add(
-        EmailCode(
-            email=email,
-            code_hash=_hash_secret(f"{email}:{code}"),
-            purpose="register",
-            first_name=cleaned_name,
-            account_type=account_type,
-            password_hash=password_hash,
-            expires_at=now + timedelta(minutes=CODE_MINUTES),
-        )
-    )
-    db.commit()
-
-    try:
-        sent = _send_code(email, code)
-    except Exception:
-        logger.exception("email send failed")
-        sent = False
-
-    if sent:
-        logger.info("sent email code purpose=%s", purpose)
-        return None
-
-    if settings.PRODUCTION:
-        db.query(EmailCode).filter(EmailCode.email == email).delete(synchronize_session=False)
-        db.commit()
-        raise AuthError(503, "We could not send the email. Try again later.")
-
-    logger.info("email delivery is not configured; returning a development code")
-    return code
-
-
-def verify_email_code(db: Session, email: str, code: str) -> User:
-    email = normalize_email(email)
-    code = _digits(code)
-    presented = _hash_secret(f"{email}:{code}")
-    row = (
-        db.query(EmailCode)
-        .filter(EmailCode.email == email)
-        .order_by(EmailCode.created_at.desc())
-        .first()
-    )
-    if row is None:
-        _hashes_match(_hash_secret("missing"), presented)
-        raise AuthError(400, "That code is incorrect or has expired. Request a new one.")
-
-    now = utcnow()
-    if _aware(row.expires_at) < now or row.attempts >= CODE_ATTEMPTS:
-        db.delete(row)
-        db.commit()
-        raise AuthError(400, "That code is incorrect or has expired. Request a new one.")
-    if not _hashes_match(row.code_hash, presented):
-        row.attempts += 1
-        db.commit()
-        raise AuthError(400, "That code is incorrect or has expired. Request a new one.")
-
-    purpose = row.purpose
-    first_name = row.first_name
-    account_type = row.account_type
-    password_hash = row.password_hash
-    db.delete(row)
-
-    if purpose != "register" or not password_hash:
-        db.commit()
-        raise AuthError(400, "Register again and choose a password.")
-    if db.query(User).filter(User.email == email).one_or_none():
-        db.commit()
-        raise AuthError(409, "An account with this email already exists. Log in instead.")
-    user = _create_user(db, first_name or "", email, account_type or "", password_hash)
-
+    user = _create_user(db, first_name, email, account_type, hash_password(password))
     try:
         db.commit()
     except IntegrityError as exc:
