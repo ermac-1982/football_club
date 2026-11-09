@@ -344,14 +344,19 @@ footer, [data-testid="stStatusWidget"] {
 .volt-hub,
 .volt-nav,
 .volt-account-slot,
-.volt-with-nav {
+.volt-with-nav,
+.volt-phone,
+.volt-phone-bar,
+.volt-phone-sheet {
   display: none;
 }
 
 [data-testid="stMarkdown"]:has(.volt-hub),
 [data-testid="stMarkdown"]:has(.volt-nav),
 [data-testid="stMarkdown"]:has(.volt-account-slot),
-[data-testid="stMarkdown"]:has(.volt-with-nav) {
+[data-testid="stMarkdown"]:has(.volt-with-nav),
+[data-testid="stMarkdown"]:has(.volt-phone),
+[data-testid="stMarkdown"]:has(.volt-phone-sheet) {
   display: none;
 }
 
@@ -977,4 +982,96 @@ footer, [data-testid="stStatusWidget"] {
 .volt-rank-you {
   border-color: var(--volt-lime);
   box-shadow: 0 0 16px rgba(57, 255, 20, 0.32);
+}
+
+.volt-phone-brand {
+  margin: 0;
+  line-height: 1.1;
+}
+
+.volt-phone-section {
+  margin: 0.35rem 0 0.8rem;
+  font-family: "Poppins", "Segoe UI", sans-serif;
+  font-weight: 800;
+  font-size: 1.35rem;
+  color: var(--volt-text);
+}
+
+[data-testid="stApp"]:has(.volt-phone) [data-testid="stSidebar"],
+[data-testid="stApp"]:has(.volt-phone) [data-testid="stSidebarCollapsedControl"],
+[data-testid="stApp"]:has(.volt-phone) [data-testid="stExpandSidebarButton"],
+[data-testid="stApp"]:has(.volt-phone) [data-testid="stSidebarCollapseButton"] {
+  display: none !important;
+}
+
+[data-testid="stApp"]:has(.volt-phone) [data-testid="stAppViewContainer"] {
+  margin-left: 0 !important;
+}
+
+[data-testid="stApp"]:has(.volt-phone) .block-container {
+  max-width: 100%;
+  padding-top: 0.7rem;
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+}
+
+[data-testid="stApp"]:has(.volt-phone) [data-testid="stHorizontalBlock"]:not(:has(.volt-phone-bar)) {
+  flex-wrap: wrap !important;
+}
+
+[data-testid="stApp"]:has(.volt-phone) [data-testid="stHorizontalBlock"]:not(:has(.volt-phone-bar)) > [data-testid="stColumn"] {
+  flex: 1 1 100% !important;
+  width: 100% !important;
+}
+
+[data-testid="stApp"]:has(.volt-phone) [data-testid="stPopover"] > button,
+[data-testid="stApp"]:has(.volt-phone) [data-testid="stPopoverButton"] {
+  min-height: 52px;
+  border-radius: 14px !important;
+  border: 1px solid var(--volt-lime) !important;
+  background: var(--volt-surface) !important;
+  color: var(--volt-text) !important;
+  box-shadow: 0 0 14px rgba(57, 255, 20, 0.28) !important;
+  font-family: "Poppins", "Segoe UI", sans-serif;
+  font-weight: 800;
+}
+
+[data-testid="stApp"]:has(.volt-phone) [data-testid="stPopoverBody"] {
+  background: #161b22;
+  border: 1px solid var(--volt-border);
+  border-radius: 16px;
+}
+
+[data-testid="stApp"]:has(.volt-phone) [data-testid="stPopoverBody"] .volt-player-name {
+  font-size: 1.45rem;
+  margin-top: 0.2rem;
+}
+
+[data-testid="stApp"]:has(.volt-phone) [data-testid="stPopoverBody"] [data-testid="stBaseButton-secondary"]:has(img) {
+  width: 84px !important;
+  height: 108px !important;
+  min-height: 108px !important;
+  padding: 0 !important;
+  border-radius: 16px !important;
+  border: 2px solid var(--volt-lime) !important;
+  background: #10151c !important;
+  box-shadow: 0 0 14px rgba(57, 255, 20, 0.45) !important;
+  overflow: hidden;
+}
+
+[data-testid="stApp"]:has(.volt-phone) [data-testid="stPopoverBody"] [data-testid="stBaseButton-secondary"]:has(img) img {
+  width: 84px !important;
+  height: 108px !important;
+  object-fit: cover;
+  border-radius: 14px !important;
+  margin: 0 !important;
+  filter: none !important;
+}
+
+[data-testid="stApp"]:has(.volt-phone) h1 {
+  font-size: 1.7rem;
+}
+
+[data-testid="stApp"]:has(.volt-phone) [data-testid="stVideo"] video {
+  max-height: 52vh;
 }

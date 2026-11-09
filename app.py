@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from html import escape
 from pathlib import Path
 from typing import Optional
@@ -52,6 +53,35 @@ PLAYER_MENU_ICONS = {
     "Daily Challenge": ":material/electric_bolt:",
     "Leaderboard": ":material/leaderboard:",
 }
+
+_PHONE_UA = re.compile(
+    r"Android|iPhone|iPad|iPod|Mobile|IEMobile|Opera Mini|BlackBerry|webOS",
+    re.IGNORECASE,
+)
+
+
+def _is_phone_client(user_agent: str, mobile_hint: str = "") -> bool:
+    if (mobile_hint or "").strip() == "?1":
+        return True
+    return _PHONE_UA.search(user_agent or "") is not None
+
+
+def viewing_on_phone() -> bool:
+    """True when the browser identifies itself as a phone or tablet."""
+    try:
+        headers = st.context.headers
+    except Exception:
+        return False
+    return _is_phone_client(
+        headers.get("user-agent") or "",
+        headers.get("sec-ch-ua-mobile") or "",
+    )
+
+
+def mark_phone() -> None:
+    if viewing_on_phone():
+        st.markdown('<div class="volt-phone"></div>', unsafe_allow_html=True)
+
 
 PLAYER_SECTIONS = {
     "Situational Coach": (
@@ -374,29 +404,92 @@ def render_player_section(name: str) -> None:
     )
 
 
+def _prepare_player_nav() -> None:
+    pending = st.session_state.pop("player_nav_pending", None)
+    if pending in PLAYER_MENU:
+        st.session_state.player_nav = pending
+        st.session_state.player_nav_seen = pending
+    if st.session_state.get("player_nav") not in PLAYER_MENU:
+        st.session_state.player_nav = PLAYER_MENU[0]
+        st.session_state.player_nav_seen = PLAYER_MENU[0]
+
+
+def _player_menu_radio() -> str:
+    choice = st.radio(
+        "Menu",
+        PLAYER_MENU,
+        format_func=lambda name: f"{PLAYER_MENU_ICONS[name]} {name}",
+        label_visibility="collapsed",
+        key="player_nav",
+        width="stretch",
+    )
+    _sync_player_menu(choice)
+    return choice
+
+
+def _render_player_content(user: dict, choice: str) -> None:
+    if st.session_state.avatar_notice:
+        st.success(st.session_state.avatar_notice)
+        st.session_state.avatar_notice = None
+    if st.session_state.just_signed_in:
+        st.success("You are on the pitch.")
+        st.session_state.just_signed_in = False
+    if st.session_state.screen == "avatar":
+        render_avatar(user, first_time=False)
+    elif choice == "Situational Coach":
+        render_situational_coach(user)
+    elif choice == "Videos":
+        render_videos()
+    elif choice == "Join club":
+        render_join_club(user)
+    elif choice == "Leaderboard":
+        render_leaderboard(user)
+    else:
+        render_player_section(choice)
+
+
+def _phone_bar(user: dict, play_menu: bool) -> str:
+    if play_menu:
+        _prepare_player_nav()
+    brand, trigger = st.columns([1.45, 1], vertical_alignment="center")
+    with brand:
+        st.markdown(
+            '<div class="volt-phone-bar"></div><p class="volt-kicker volt-phone-brand">VOLT PITCH</p>',
+            unsafe_allow_html=True,
+        )
+    choice = st.session_state.get("player_nav", PLAYER_MENU[0]) if play_menu else ""
+    with trigger:
+        with st.popover("Menu", icon=":material/menu:", width="stretch"):
+            st.markdown('<div class="volt-phone-sheet"></div>', unsafe_allow_html=True)
+            nick = escape(_player_nickname(user))
+            st.markdown(f'<h2 class="volt-player-name">{nick}</h2>', unsafe_allow_html=True)
+            render_club_badge()
+            if play_menu:
+                render_avatar_menu(user)
+                choice = _player_menu_radio()
+            elif st.button("Log out", width="stretch", key="phone_log_out"):
+                _sign_out()
+    return choice
+
+
 def render_player(user: dict) -> None:
     st.markdown('<div class="volt-hub"></div>', unsafe_allow_html=True)
+    if viewing_on_phone():
+        choice = _phone_bar(user, play_menu=True)
+        heading = "Modify avatar" if st.session_state.screen == "avatar" else choice
+        st.markdown(
+            f'<p class="volt-sub volt-phone-section">{escape(heading)}</p>',
+            unsafe_allow_html=True,
+        )
+        _render_player_content(user, choice)
+        return
     nav, stage = st.columns([1.2, 3.05], gap="medium")
     with nav:
         st.markdown('<div class="volt-nav"></div>', unsafe_allow_html=True)
         st.markdown('<p class="volt-kicker">VOLT PITCH</p>', unsafe_allow_html=True)
         st.markdown('<p class="volt-nav-label">Play</p>', unsafe_allow_html=True)
-        pending = st.session_state.pop("player_nav_pending", None)
-        if pending in PLAYER_MENU:
-            st.session_state.player_nav = pending
-            st.session_state.player_nav_seen = pending
-        if st.session_state.get("player_nav") not in PLAYER_MENU:
-            st.session_state.player_nav = PLAYER_MENU[0]
-            st.session_state.player_nav_seen = PLAYER_MENU[0]
-        choice = st.radio(
-            "Menu",
-            PLAYER_MENU,
-            format_func=lambda name: f"{PLAYER_MENU_ICONS[name]} {name}",
-            label_visibility="collapsed",
-            key="player_nav",
-            width="stretch",
-        )
-        _sync_player_menu(choice)
+        _prepare_player_nav()
+        choice = _player_menu_radio()
     with stage:
         nick = escape(_player_nickname(user))
         heading = "Modify avatar" if st.session_state.screen == "avatar" else choice
@@ -413,24 +506,7 @@ def render_player(user: dict) -> None:
         with avatar_slot:
             render_avatar_menu(user)
         render_club_badge()
-        if st.session_state.avatar_notice:
-            st.success(st.session_state.avatar_notice)
-            st.session_state.avatar_notice = None
-        if st.session_state.just_signed_in:
-            st.success("You are on the pitch.")
-            st.session_state.just_signed_in = False
-        if st.session_state.screen == "avatar":
-            render_avatar(user, first_time=False)
-        elif choice == "Situational Coach":
-            render_situational_coach(user)
-        elif choice == "Videos":
-            render_videos()
-        elif choice == "Join club":
-            render_join_club(user)
-        elif choice == "Leaderboard":
-            render_leaderboard(user)
-        else:
-            render_player_section(choice)
+        _render_player_content(user, choice)
 
 
 def render_sidebar(user: dict) -> None:
@@ -789,6 +865,10 @@ def render_auth() -> None:
 
 
 def render_home(user: dict) -> None:
+    if viewing_on_phone():
+        _phone_bar(user, play_menu=False)
+        render_coach_club(user)
+        return
     st.markdown('<div class="volt-with-nav"></div>', unsafe_allow_html=True)
     render_sidebar(user)
     volt_header("Football Club", "Build your club, then send players to the pitch.")
@@ -835,6 +915,7 @@ def main() -> None:
     )
     inject_theme()
     init_state()
+    mark_phone()
     providers = st.session_state.providers
     if providers is None or providers.get("api_down"):
         st.session_state.providers = load_providers()
