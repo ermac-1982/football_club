@@ -2,3 +2,10 @@ fastapi
 uvicorn[standard]
 streamlit
 requests
+sqlalchemy
+psycopg[binary]
+pyjwt
+httpx
+google-auth
+python-dotenv
+email-validator

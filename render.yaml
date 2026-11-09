@@ -1,4 +1,5 @@
 # Render Blueprint: FastAPI + Streamlit
+# Uses the Postgres database already created in this Render account.
 # Dashboard: New > Blueprint > connect this repo
 # https://dashboard.render.com/blueprints
 
@@ -13,6 +14,22 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.11"
+      - key: APP_ENV
+        value: production
+      # Internal connection string from the existing Render Postgres database.
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: APP_URL
+        fromService:
+          name: football-club-web
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
 
   - type: web
     name: football-club-web

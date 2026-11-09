@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800&family=Poppins:wght@700&display=swap" />
+  <style>
+    html, body { margin: 0; background: #0d1117; color: #fff; font-family: Nunito, "Segoe UI", sans-serif; }
+    .wrap { display: flex; flex-direction: column; gap: 10px; padding: 4px 4px 8px; }
+    svg {
+      display: block; width: auto; max-width: 100%; height: auto; margin: 0 auto;
+      touch-action: none; background: #101810; border-radius: 18px; border: 1px solid #2a2f36;
+    }
+    .hint { margin: 0; color: #a0aec0; font-size: 15px; }
+    .bar { display: flex; flex-wrap: wrap; gap: 8px; }
+    button {
+      min-height: 48px; border-radius: 12px; border: 2px solid #2a2f36; background: #161b22;
+      color: #fff; font-family: Poppins, Nunito, sans-serif; font-weight: 700; font-size: 15px;
+      padding: 0 16px; cursor: pointer;
+    }
+    button.choice.on { border-color: #00e5ff; color: #00e5ff; box-shadow: 0 0 12px rgba(0, 229, 255, 0.45); }
+    button.go { flex: 1 1 180px; background: #ff6b00; border-color: #ff6b00; box-shadow: 0 0 16px rgba(255, 107, 0, 0.45); }
+    button.go:disabled { opacity: 0.45; box-shadow: none; cursor: default; }
+    button.reset { border-color: #39ff14; color: #39ff14; }
+    .pulse { animation: pulse 1.2s ease-in-out infinite; }
+    @keyframes pulse { 50% { opacity: 0.45; } }
+    .dash { stroke-dasharray: 4 3; animation: march 0.8s linear infinite; }
+    @keyframes march { to { stroke-dashoffset: -14; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <p class="hint" id="hint"></p>
+    <svg id="pitch" viewBox="0 0 100 128" role="img" aria-label="Tactical pitch"></svg>
+    <div class="bar" id="bar"></div>
+  </div>
+  <script>
+    const svg = document.getElementById("pitch");
+    const hint = document.getElementById("hint");
+    const bar = document.getElementById("bar");
+    let spec = null;
+    let players = [];
+    let ball = null;
+    let drag = null;
+    let choice = null;
+    let sent = false;
+    let frameHeight = 0;
+
+    function send(type, data) {
+      window.parent.postMessage(Object.assign({ isStreamlitMessage: true, type: type }, data), "*");
+    }
+    function fitFrame() {
+      let room = 760;
+      try { room = window.parent.innerHeight || room; } catch (error) { room = 760; }
+      const maxPitch = Math.max(300, Math.min(560, room - 280));
+      svg.style.maxHeight = maxPitch + "px";
+      requestAnimationFrame(() => {
+        const height = Math.ceil(document.body.scrollHeight) + 8;
+        if (Math.abs(height - frameHeight) < 3) return;
+        frameHeight = height;
+        send("streamlit:setFrameHeight", { height: height });
+      });
+    }
+    function ready() {
+      send("streamlit:componentReady", { apiVersion: 1 });
+      fitFrame();
+    }
+    function clamp(value, low, high) { return Math.max(low, Math.min(high, value)); }
+    function toSvg(point) {
+      return { x: 6 + point.x * 0.88, y: 8 + (100 - point.y) * 1.12 };
+    }
+    function fromSvg(x, y) {
+      return { x: clamp((x - 6) / 0.88, 0, 100), y: clamp(100 - (y - 8) / 1.12, 0, 100) };
+    }
+    function eventPoint(event) {
+      const matrix = svg.getScreenCTM().inverse();
+      const point = svg.createSVGPoint();
+      point.x = event.clientX;
+      point.y = event.clientY;
+      const local = point.matrixTransform(matrix);
+      return fromSvg(local.x, local.y);
+    }
+    function byId(id) { return players.find((player) => player.id === id); }
+    function highlight() { return byId(spec.highlightedPlayerId); }
+    function attacking() { return players.filter((player) => player.team === "attack"); }
+
+    function copySpec(next) {
+      spec = next;
+      players = spec.attackingPlayers.concat(spec.defendingPlayers).map((player) => Object.assign({}, player));
+      ball = Object.assign({}, spec.ballPosition);
+      choice = null;
+      sent = false;
+      if (spec.mode === "review" && spec.playMode === "positioning" && spec.review && spec.review.submitted) {
+        const mover = highlight();
+        mover.x = spec.review.submitted.x;
+        mover.y = spec.review.submitted.y;
+      }
+      draw();
+      controls();
+      if (spec.mode === "review") animateReview();
+    }
+
+    function pitchMarks() {
+      const marks = [
+        '<rect x="6" y="8" width="88" height="112" fill="#14301c" stroke="#39ff14" stroke-opacity="0.55" stroke-width="0.6"/>',
+        '<rect x="6" y="8" width="88" height="16" fill="#102818"/>',
+        '<rect x="6" y="40" width="88" height="16" fill="#102818"/>',
+        '<rect x="6" y="72" width="88" height="16" fill="#102818"/>',
+        '<rect x="6" y="104" width="88" height="16" fill="#102818"/>',
+        '<rect x="6" y="8" width="88" height="112" fill="none" stroke="#39ff14" stroke-opacity="0.7" stroke-width="0.7"/>',
+        '<line x1="6" y1="64" x2="94" y2="64" stroke="#39ff14" stroke-opacity="0.45" stroke-width="0.5"/>',
+        '<circle cx="50" cy="64" r="9" fill="none" stroke="#39ff14" stroke-opacity="0.45" stroke-width="0.5"/>',
+        '<rect x="28" y="8" width="44" height="16" fill="none" stroke="#39ff14" stroke-opacity="0.45" stroke-width="0.5"/>',
+        '<rect x="28" y="104" width="44" height="16" fill="none" stroke="#39ff14" stroke-opacity="0.45" stroke-width="0.5"/>',
+        '<rect x="42" y="4" width="16" height="4" fill="none" stroke="#00e5ff" stroke-width="0.7"/>',
+        '<rect x="42" y="120" width="16" height="4" fill="none" stroke="#39ff14" stroke-width="0.7"/>'
+      ];
+      return marks.join("");
+    }
+
+    function draw() {
+      const review = spec.review || null;
+      const playMode = spec.mode === "review" ? spec.playMode : spec.mode;
+      let body = pitchMarks();
+      if (playMode === "decision") {
+        const carrier = highlight();
+        const from = toSvg(carrier);
+        attacking().forEach((player) => {
+          if (player.id === carrier.id) return;
+          const to = toSvg(player);
+          body += `<line x1="${from.x}" y1="${from.y}" x2="${to.x}" y2="${to.y}" stroke="#00e5ff" stroke-opacity="0.28" stroke-width="0.45"/>`;
+        });
+      }
+      if (review && review.correctPosition) {
+        const spot = toSvg(review.correctPosition);
+        body += `<circle class="pulse" cx="${spot.x}" cy="${spot.y}" r="5.2" fill="none" stroke="#39ff14" stroke-width="0.7"/>`;
+      }
+      if (review && playMode === "decision" && review.correctAction) {
+        body += arrowFor(review.correctAction, "#39ff14");
+        if (review.submitted && review.score < 100) body += arrowFor(review.submitted, "#ff6b00");
+      }
+      const order = players.filter((player) => player.id !== spec.highlightedPlayerId).concat(highlight());
+      order.forEach((player) => { body += playerMark(player); });
+      const ballSpot = toSvg(ball);
+      body += `<circle cx="${ballSpot.x}" cy="${ballSpot.y}" r="1.9" fill="#fff" stroke="#111" stroke-width="0.35"/>`;
+      svg.innerHTML = body;
+    }
+
+    function arrowFor(action, color) {
+      const carrier = highlight();
+      const from = toSvg(carrier);
+      let target = null;
+      if (action.action === "pass" && action.targetPlayerId) target = toSvg(byId(action.targetPlayerId));
+      if (action.action === "shoot") target = toSvg({ x: carrier.x, y: 98 });
+      if (action.action === "dribble") target = toSvg({ x: carrier.x, y: Math.min(96, carrier.y + 14) });
+      if (!target) return "";
+      return `<line class="dash" x1="${from.x}" y1="${from.y}" x2="${target.x}" y2="${target.y}" stroke="${color}" stroke-width="0.8"/>`;
+    }
+
+    function playerMark(player) {
+      const spot = toSvg(player);
+      const mine = player.team === "attack";
+      const active = player.id === spec.highlightedPlayerId;
+      const selected = choice && choice.action === "pass" && choice.targetPlayerId === player.id;
+      const fill = mine ? "#39ff14" : "#ff6b00";
+      const text = mine ? "#102010" : "#1a0d00";
+      const ring = active ? "#00e5ff" : (selected ? "#fff" : "transparent");
+      const keeper = player.goalkeeper ? `<circle cx="${spot.x}" cy="${spot.y}" r="4.6" fill="none" stroke="${fill}" stroke-width="0.45"/>` : "";
+      return `${keeper}<circle cx="${spot.x}" cy="${spot.y}" r="3.5" fill="${fill}" stroke="${ring}" stroke-width="0.7"/>
+        <text x="${spot.x}" y="${spot.y + 0.9}" text-anchor="middle" font-size="2.3" font-family="Nunito, sans-serif" font-weight="800" fill="${text}">${player.role}</text>`;
+    }
+
+    function controls() {
+      const review = spec.mode === "review";
+      const decision = (review ? spec.playMode : spec.mode) === "decision";
+      if (review) hint.textContent = "The bright mark shows a strong choice.";
+      else if (choice && choice.action === "pass") {
+        const target = byId(choice.targetPlayerId);
+        hint.textContent = `Pass to ${target ? target.role : "that teammate"}. Submit when you're ready.`;
+      } else if (choice && choice.action === "shoot") hint.textContent = "Shoot. Submit when you're ready.";
+      else if (choice && choice.action === "dribble") hint.textContent = "Dribble. Submit when you're ready.";
+      else hint.textContent = decision
+        ? "Tap a teammate to pass, or choose dribble or shoot."
+        : "Drag the cyan player, then submit.";
+      bar.innerHTML = "";
+      if (review) {
+        fitFrame();
+        return;
+      }
+      if (decision) {
+        const actions = spec.availableActions || [];
+        if (actions.includes("dribble")) bar.appendChild(choiceButton("Dribble", "dribble"));
+        if (actions.includes("shoot")) bar.appendChild(choiceButton("Shoot", "shoot"));
+      }
+      const reset = document.createElement("button");
+      reset.className = "reset";
+      reset.textContent = "Reset";
+      reset.onclick = () => copySpec(spec);
+      const go = document.createElement("button");
+      go.className = "go";
+      go.textContent = "Submit";
+      go.disabled = decision && !choice;
+      go.onclick = submit;
+      bar.appendChild(reset);
+      bar.appendChild(go);
+      fitFrame();
+    }
+
+    function choiceButton(label, action) {
+      const button = document.createElement("button");
+      button.className = "choice" + (choice && choice.action === action ? " on" : "");
+      button.textContent = label;
+      button.onclick = () => {
+        choice = { action: action };
+        draw();
+        controls();
+      };
+      return button;
+    }
+
+    function submit() {
+      if (sent) return;
+      const playMode = spec.mode;
+      let value = { token: String(Date.now()) + Math.random(), scenarioId: spec.id };
+      if (playMode === "positioning") {
+        const mover = highlight();
+        value.x = Math.round(mover.x * 10) / 10;
+        value.y = Math.round(mover.y * 10) / 10;
+      } else if (!choice) {
+        return;
+      } else {
+        value.action = choice.action;
+        if (choice.targetPlayerId) value.targetPlayerId = choice.targetPlayerId;
+      }
+      sent = true;
+      send("streamlit:setComponentValue", { value: value, dataType: "json" });
+    }
+
+    function hitPlayer(point) {
+      let found = null;
+      let best = 8;
+      players.forEach((player) => {
+        const dist = Math.hypot(player.x - point.x, player.y - point.y);
+        if (dist < best) { best = dist; found = player; }
+      });
+      return found;
+    }
+
+    svg.addEventListener("pointerdown", (event) => {
+      if (!spec || spec.mode === "review") return;
+      const point = eventPoint(event);
+      const player = hitPlayer(point);
+      if (!player) return;
+      if (spec.mode === "positioning" && player.id === spec.highlightedPlayerId) {
+        drag = player;
+        svg.setPointerCapture(event.pointerId);
+      }
+      if (spec.mode === "decision" && player.team === "attack" && player.id !== spec.highlightedPlayerId) {
+        choice = { action: "pass", targetPlayerId: player.id };
+        draw();
+        controls();
+      }
+    });
+    svg.addEventListener("pointermove", (event) => {
+      if (!drag) return;
+      const point = eventPoint(event);
+      const followBall = Math.hypot(ball.x - drag.x, ball.y - drag.y) < 6;
+      drag.x = point.x;
+      drag.y = point.y;
+      if (followBall) { ball.x = point.x + 2; ball.y = point.y + 1; }
+      draw();
+    });
+    svg.addEventListener("pointerup", () => { drag = null; });
+    svg.addEventListener("pointercancel", () => { drag = null; });
+
+    function animateReview() {
+      if (!spec.review || spec.playMode !== "positioning" || !spec.review.correctPosition) return;
+      const mover = highlight();
+      const start = { x: mover.x, y: mover.y };
+      const end = spec.review.correctPosition;
+      const begun = performance.now();
+      function frame(now) {
+        const t = Math.min(1, (now - begun) / 900);
+        mover.x = start.x + (end.x - start.x) * t;
+        mover.y = start.y + (end.y - start.y) * t;
+        draw();
+        if (t < 1) requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+    }
+
+    window.addEventListener("resize", fitFrame);
+    window.addEventListener("message", (event) => {
+      if (!event.data || event.data.type !== "streamlit:render") return;
+      const next = event.data.args && event.data.args.spec;
+      if (!next) return;
+      if (!spec || spec.id !== next.id || spec.mode !== next.mode) copySpec(next);
+    });
+    ready();
+  </script>
+</body>
+</html>

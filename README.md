@@ -1,14 +1,26 @@
 # Football Club
 
-Simple Hello World with a FastAPI backend and a Streamlit frontend.
+FastAPI backend, Streamlit frontend, and PostgreSQL for accounts.
 
-## Setup
+People register with a first name, email, password, and account type (`Coach / Admin` or `Player`). A 6-digit code verifies the email during registration. Later sign-ins use that password. Google sign-in is also available.
+
+## Local setup
+
+PostgreSQL is expected to already be running with a database named `football_club`.
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+copy .env.example .env
 ```
+
+Edit `.env` and set `POSTGRES_PASSWORD` for your local Postgres user (the default user is `postgres`). Also set `SECRET_KEY` to a long random string. The API creates these tables in `football_club` on startup:
+
+- `users`
+- `auth_identities`
+- `email_login_codes`
+- `auth_handoffs`
 
 ## Run
 
@@ -24,12 +36,22 @@ Terminal 2 — UI:
 streamlit run app.py
 ```
 
-Open the Streamlit URL (usually http://localhost:8501) and click **Say hello**.
-The API is also at http://127.0.0.1:8000.
+Open the Streamlit URL (usually http://localhost:8501).
+
+Until `SMTP_HOST` is set, local email codes are shown in the app instead of being emailed. Set `APP_ENV=production` only when email delivery is configured. Production never returns the code in the API response.
+
+### Google sign-in
+
+1. In Google Cloud, create an OAuth client of type **Web application**.
+2. Add this authorized redirect URI: `http://127.0.0.1:8000/auth/google/callback`
+3. Put the client id and secret in `.env` as `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
+4. Restart the API.
+
+On Render, add the API service's public URL plus `/auth/google/callback` as a second redirect URI.
 
 ## Deploy on Render
 
-`render.yaml` defines two free web services:
+`render.yaml` defines two free web services. It does not create a database. The API uses the Postgres database already in the Render account.
 
 | Service | What it runs | Health check |
 | --- | --- | --- |
@@ -41,6 +63,11 @@ The UI talks to the API over Render's private network (`API_HOSTPORT`). Override
 1. Push this repo to GitHub (Render deploys from Git).
 2. Open [Render Blueprints](https://dashboard.render.com/blueprints) → **New Blueprint Instance**.
 3. Connect the repo. Render reads `render.yaml`.
-4. Create the Blueprint. Open the `football-club-web` URL when both deploys are live.
+4. For `DATABASE_URL`, paste the **Internal Database URL** from the existing Render Postgres database. Do not create another database.
+5. Google client id and secret can be left empty until Google sign-in is ready.
+6. For email codes in production, set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, and `SMTP_FROM` on the API service. Until those are set, registration cannot send a code.
+7. Create the Blueprint. Open the `football-club-web` URL when the deploys are live.
+
+Local development keeps using your installed Postgres database. Production uses the Render database.
 
 Free instances spin down after idle time; the first request after that can take ~30–60s.

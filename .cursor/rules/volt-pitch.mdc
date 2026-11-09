@@ -1,0 +1,79 @@
+---
+description: Volt Pitch UI for buttons, cards, charge, navigation, avatars, skill paths, and celebrations
+alwaysApply: true
+---
+
+# Volt Pitch components
+
+Kids football coaching app, ages 9–12. Dark mode first. Keep existing behavior when restyling.
+
+Colors: background `#0D1117`, surfaces `#161B22` / `#1C2128`, border `#2A2F36`, lime `#39FF14` or `#00FF85`, cyan `#00E5FF`, orange `#FF6B00`, text `#FFFFFF` / `#A0AEC0`. Headlines Poppins ExtraBold. Body Nunito or Poppins. Cards 16–24px radius. Buttons 12px radius. Large, high-contrast, tappable targets.
+
+## Buttons
+
+- Primary: fill `#FF6B00`, white text, slight orange glow, rounded.
+- Secondary: outlined or filled neon lime.
+- Do not use Streamlit’s default blue or gray for actions.
+
+## Cards
+
+- Dark surface, subtle border. Active or in-progress cards get a neon lime border or glow.
+- Bold title, then secondary text. One clear action.
+
+## Progress and charge
+
+- Progress is a glowing neon lime **Charge Level** bar, not a plain gray bar.
+- Skill paths may use thin circuit-style connectors between nodes.
+- XP and level read as energy: lime number, short spark or motion accent on success.
+
+## Bottom navigation
+
+- Dark bar, at most 5 items. Default set: Home, Train, Challenges, Profile.
+- Active icon is neon lime with a glow. Inactive icons use secondary text.
+
+## Characters
+
+Use this for every player avatar, skill-path character, and celebration screen.
+
+- Soft 3D stylized kids, ages 9–12. Not flat 2D. Not realistic.
+- Athletic kids: slightly oversized heads, big expressive eyes, friendly confident faces. Not babyish or overly cute.
+- Clean soft 3D, like a modern game character. Smooth shading, subtle subsurface scattering. No hard cel shading.
+- Inclusive and natural. Light skin reads Caucasian. Dark skin reads African. Hair styles are short, curly, and ponytail. Hair colours are black, brown, and blonde. Genders are M and F.
+- Kit: dark black jersey and shorts. Neon lime `#39FF14` on the collar, side stripes, number, and logo. Cyan `#00E5FF` on socks, headbands, and small details.
+- Poses are dynamic: running, dribbling, controlling the ball, or celebrating. Not a static mascot stance.
+- Subtle neon rim light. Clean and polished, with very little texture noise.
+- Cool, energetic, and empowering. Kids who belong on a modern pitch.
+
+Creator choices are gender, skin, hair style, hair colour, boots, and nickname. The pictured kit is the Volt kit: black, lime, and cyan. Boots are black or orange.
+
+## Training and skill path
+
+A glowing circuit on a dark pitch.
+
+- Completed nodes: bright neon lime, checkmark, glow.
+- Current node: cyan or orange pulse.
+- Locked nodes: dimmed.
+- Connectors light up only through completed progress.
+- Bottom: next-drill card and one large orange **Start Drill** button.
+- Copy uses Charge, Power Up, and names like Electric Dribbler.
+- Characters on the path use the soft 3D kid style, in a running or dribbling pose.
+
+## Drill complete and level-up
+
+A power surge for ages 9–12. Full-screen or modal on a dark background with electric streaks.
+
+- Headline is **CHARGE UP!** or **POWER SURGE!** in neon lime, large and bold.
+- Soft spark or glow animation. No clutter.
+- Show XP gained. Show the streak when one exists.
+- The cheering kid uses the soft 3D character style, in a celebration pose, with the Volt kit.
+- One large continue button: hot orange or neon lime, white or dark text that stays readable.
+
+## Section complete level-up
+
+The Situational Coach power surge, for ages 9–12, when a section is finished. It is a popup over the pitch, on a dark background with electric streaks and a short surge sound.
+
+- Small line **POWER SURGE!** then a huge neon lime **CHARGE UP**.
+- A glowing cyan energy orb and the player’s own avatar, in the soft 3D Volt kit.
+- Show the bonus as **XP BOOST +500 XP**.
+- Line: **YOU'RE UNSTOPPABLE!** then “Keep pitching. Keep winning.”
+- One large **BACK TO THE PITCH** button: lime-to-yellow fill, dark text that stays readable.
