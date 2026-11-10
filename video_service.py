@@ -10,9 +10,8 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from constants import VIDEO_POINTS
 from db import User, VideoWatch
-
-VIDEO_POINTS = 200
 VIDEO_DIR = Path(__file__).resolve().parent / "assets" / "videos"
 _VIDEO_ID = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 

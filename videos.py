@@ -9,7 +9,7 @@ from pathlib import Path
 import streamlit as st
 import streamlit.components.v1 as components
 
-from video_service import VIDEO_POINTS
+from constants import VIDEO_POINTS
 
 VIDEO_DIR = Path(__file__).resolve().parent / "assets" / "videos"
 

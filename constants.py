@@ -81,6 +81,8 @@ AVATAR_BODIES = {
     "strong": "Strong",
 }
 
+VIDEO_POINTS = 200
+
 GENERIC_AVATAR = {
     "gender": "M",
     "skin_color": "dark",
