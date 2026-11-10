@@ -371,20 +371,26 @@ def _sync_player_menu(choice: str) -> None:
     st.session_state.player_nav_seen = choice
 
 
-def render_avatar_menu(user: dict) -> None:
+def _avatar_actions() -> None:
+    if not st.session_state.get("avatar_menu_open"):
+        return
+    if st.button("Modify avatar", type="primary", width="stretch", key="player_modify_avatar"):
+        st.session_state.avatar_menu_open = False
+        st.session_state.screen = "avatar"
+        st.rerun()
+    if st.button("Log out", width="stretch", key="player_log_out"):
+        st.session_state.avatar_menu_open = False
+        _sign_out()
+
+
+def render_avatar_menu(user: dict, *, actions: bool = True) -> None:
     st.markdown('<div class="volt-account-slot"></div>', unsafe_allow_html=True)
     portrait = _portrait_url(user.get("avatar"))
     if st.button(f"![Your player]({portrait})", key="avatar_toggle"):
         st.session_state.avatar_menu_open = not st.session_state.get("avatar_menu_open", False)
         st.rerun()
-    if st.session_state.get("avatar_menu_open"):
-        if st.button("Modify avatar", type="primary", width="stretch", key="player_modify_avatar"):
-            st.session_state.avatar_menu_open = False
-            st.session_state.screen = "avatar"
-            st.rerun()
-        if st.button("Log out", width="stretch", key="player_log_out"):
-            st.session_state.avatar_menu_open = False
-            _sign_out()
+    if actions:
+        _avatar_actions()
 
 
 def render_player_section(name: str) -> None:
@@ -462,13 +468,23 @@ def _phone_bar(user: dict, play_menu: bool) -> str:
         with st.popover("Menu", icon=":material/menu:", width="stretch"):
             st.markdown('<div class="volt-phone-sheet"></div>', unsafe_allow_html=True)
             nick = escape(_player_nickname(user))
-            st.markdown(f'<h2 class="volt-player-name">{nick}</h2>', unsafe_allow_html=True)
-            render_club_badge()
             if play_menu:
-                render_avatar_menu(user)
+                name_col, avatar_col = st.columns([1.7, 0.72], vertical_alignment="top")
+                with name_col:
+                    st.markdown(
+                        f'<div class="volt-phone-head"></div><h2 class="volt-player-name">{nick}</h2>',
+                        unsafe_allow_html=True,
+                    )
+                    render_club_badge()
+                with avatar_col:
+                    render_avatar_menu(user, actions=False)
+                _avatar_actions()
                 choice = _player_menu_radio()
-            elif st.button("Log out", width="stretch", key="phone_log_out"):
-                _sign_out()
+            else:
+                st.markdown(f'<h2 class="volt-player-name">{nick}</h2>', unsafe_allow_html=True)
+                render_club_badge()
+                if st.button("Log out", width="stretch", key="phone_log_out"):
+                    _sign_out()
     return choice
 
 

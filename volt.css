@@ -347,6 +347,7 @@ footer, [data-testid="stStatusWidget"] {
 .volt-with-nav,
 .volt-phone,
 .volt-phone-bar,
+.volt-phone-head,
 .volt-phone-sheet {
   display: none;
 }
@@ -1015,11 +1016,11 @@ footer, [data-testid="stStatusWidget"] {
   padding-right: 0.75rem;
 }
 
-[data-testid="stApp"]:has(.volt-phone) [data-testid="stHorizontalBlock"]:not(:has(.volt-phone-bar)) {
+[data-testid="stApp"]:has(.volt-phone) [data-testid="stHorizontalBlock"]:not(:has(.volt-phone-bar)):not(:has(.volt-phone-head)) {
   flex-wrap: wrap !important;
 }
 
-[data-testid="stApp"]:has(.volt-phone) [data-testid="stHorizontalBlock"]:not(:has(.volt-phone-bar)) > [data-testid="stColumn"] {
+[data-testid="stApp"]:has(.volt-phone) [data-testid="stHorizontalBlock"]:not(:has(.volt-phone-bar)):not(:has(.volt-phone-head)) > [data-testid="stColumn"] {
   flex: 1 1 100% !important;
   width: 100% !important;
 }
@@ -1042,9 +1043,33 @@ footer, [data-testid="stStatusWidget"] {
   border-radius: 16px;
 }
 
+[data-testid="stApp"]:has(.volt-phone) [data-testid="stPopoverBody"] [data-testid="stHorizontalBlock"]:has(.volt-phone-head) {
+  flex-wrap: nowrap !important;
+  align-items: flex-start;
+  gap: 0.65rem;
+}
+
+[data-testid="stApp"]:has(.volt-phone) [data-testid="stPopoverBody"] [data-testid="stColumn"]:has(.volt-phone-head) {
+  flex: 1 1 auto !important;
+  width: auto !important;
+  min-width: 0 !important;
+}
+
+[data-testid="stApp"]:has(.volt-phone) [data-testid="stPopoverBody"] [data-testid="stColumn"]:has(.volt-account-slot) {
+  flex: 0 0 96px !important;
+  width: 96px !important;
+  min-width: 96px !important;
+}
+
 [data-testid="stApp"]:has(.volt-phone) [data-testid="stPopoverBody"] .volt-player-name {
-  font-size: 1.45rem;
-  margin-top: 0.2rem;
+  font-size: 1.35rem;
+  line-height: 1.15;
+  margin: 0.15rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+[data-testid="stApp"]:has(.volt-phone) [data-testid="stPopoverBody"] .volt-club-badge {
+  margin: 0.45rem 0 0.15rem;
 }
 
 [data-testid="stApp"]:has(.volt-phone) [data-testid="stPopoverBody"] [data-testid="stBaseButton-secondary"]:has(img) {
