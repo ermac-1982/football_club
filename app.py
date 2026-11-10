@@ -52,7 +52,11 @@ PLAYER_MENU_ICONS = {
     "Join club": ":material/groups:",
     "Daily Challenge": ":material/electric_bolt:",
     "Leaderboard": ":material/leaderboard:",
+    "Edit avatar": ":material/face:",
+    "Log out": ":material/logout:",
 }
+
+PHONE_MENU = PLAYER_MENU + ("Edit avatar", "Log out")
 
 _PHONE_UA = re.compile(
     r"Android|iPhone|iPad|iPod|Mobile|IEMobile|Opera Mini|BlackBerry|webOS",
@@ -124,6 +128,13 @@ def api_base_url() -> str:
     return "http://127.0.0.1:8000"
 
 
+def api_public_url() -> str:
+    explicit = os.environ.get("API_PUBLIC_URL", "").strip()
+    if explicit:
+        return explicit.rstrip("/")
+    return api_base_url()
+
+
 API_URL = api_base_url()
 
 AUTH_ERRORS = {
@@ -175,6 +186,11 @@ def api_request(method: str, path: str, payload: Optional[dict] = None, token: O
         raise ApiError(
             "Could not reach the API. Start it with `uvicorn api:app --reload`."
         ) from exc
+    if response.status_code == 401 and token:
+        st.session_state.token = None
+        st.session_state.user = None
+        st.session_state.skip_restore = False
+        st.rerun()
     if response.status_code >= 400:
         raise ApiError(error_message(response))
     if not response.content:
@@ -186,6 +202,9 @@ def init_state() -> None:
     defaults = {
         "token": None,
         "user": None,
+        "cookie_grant": None,
+        "signing_out": False,
+        "skip_restore": False,
         "auth_error": None,
         "auth_error_ready": False,
         "pending_email": None,
@@ -217,6 +236,10 @@ def apply_session(data: dict) -> None:
     st.session_state.pending_email = None
     st.session_state.google_pending = None
     st.session_state.just_signed_in = True
+    st.session_state.skip_restore = False
+    st.session_state.signing_out = False
+    if data.get("cookie_grant"):
+        st.session_state.cookie_grant = data["cookie_grant"]
     for key in ("finish_first_name", "finish_account_type"):
         st.session_state.pop(key, None)
 
@@ -231,6 +254,7 @@ def consume_handoff() -> None:
             data = api_request("POST", "/auth/exchange", {"code": code})
         except ApiError as exc:
             st.session_state.auth_error = exc.message
+            st.session_state.skip_restore = True
         else:
             if data.get("kind") == "session":
                 apply_session(data)
@@ -315,6 +339,8 @@ def _choice_id(avatar: Optional[dict], name: str, fallback: str) -> str:
 
 
 def _sign_out() -> None:
+    st.session_state.signing_out = True
+    st.session_state.cookie_grant = None
     for key in ("token", "user", "pending_email", "google_pending", "just_signed_in", "avatar_notice"):
         st.session_state[key] = None if key != "just_signed_in" else False
     st.session_state.screen = "home"
@@ -338,6 +364,9 @@ def _sign_out() -> None:
         "club_edit_primary",
         "club_edit_accent",
         "club_notice",
+        "coach_surge_open",
+        "coach_surge_sound_played",
+        "surge_bonus",
     ):
         st.session_state.pop(key, None)
     st.rerun()
@@ -364,7 +393,7 @@ def _sync_player_menu(choice: str) -> None:
     previous = st.session_state.get("player_nav_seen")
     if previous is not None and choice != previous:
         st.session_state.avatar_menu_open = False
-        if st.session_state.screen == "avatar":
+        if choice != "Edit avatar" and st.session_state.screen == "avatar":
             st.session_state.screen = "home"
             st.session_state.player_nav_seen = choice
             st.rerun()
@@ -411,24 +440,34 @@ def render_player_section(name: str) -> None:
 
 
 def _prepare_player_nav() -> None:
+    allowed = PHONE_MENU if viewing_on_phone() else PLAYER_MENU
     pending = st.session_state.pop("player_nav_pending", None)
-    if pending in PLAYER_MENU:
+    if pending in allowed and pending != "Log out":
         st.session_state.player_nav = pending
         st.session_state.player_nav_seen = pending
-    if st.session_state.get("player_nav") not in PLAYER_MENU:
+    if st.session_state.get("player_nav") == "Log out":
+        _sign_out()
+    if st.session_state.get("player_nav") not in allowed:
+        if st.session_state.get("player_nav") == "Edit avatar":
+            st.session_state.screen = "avatar"
         st.session_state.player_nav = PLAYER_MENU[0]
         st.session_state.player_nav_seen = PLAYER_MENU[0]
 
 
-def _player_menu_radio() -> str:
+def _player_menu_radio(*, phone: bool = False) -> str:
+    options = PHONE_MENU if phone else PLAYER_MENU
     choice = st.radio(
         "Menu",
-        PLAYER_MENU,
+        options,
         format_func=lambda name: f"{PLAYER_MENU_ICONS[name]} {name}",
         label_visibility="collapsed",
         key="player_nav",
         width="stretch",
     )
+    if choice == "Log out":
+        _sign_out()
+    if choice == "Edit avatar":
+        st.session_state.screen = "avatar"
     _sync_player_menu(choice)
     return choice
 
@@ -467,24 +506,11 @@ def _phone_bar(user: dict, play_menu: bool) -> str:
     with trigger:
         with st.popover("Menu", icon=":material/menu:", width="stretch"):
             st.markdown('<div class="volt-phone-sheet"></div>', unsafe_allow_html=True)
-            nick = escape(_player_nickname(user))
+            render_club_badge()
             if play_menu:
-                name_col, avatar_col = st.columns([1.7, 0.72], vertical_alignment="top")
-                with name_col:
-                    st.markdown(
-                        f'<div class="volt-phone-head"></div><h2 class="volt-player-name">{nick}</h2>',
-                        unsafe_allow_html=True,
-                    )
-                    render_club_badge()
-                with avatar_col:
-                    render_avatar_menu(user, actions=False)
-                _avatar_actions()
-                choice = _player_menu_radio()
-            else:
-                st.markdown(f'<h2 class="volt-player-name">{nick}</h2>', unsafe_allow_html=True)
-                render_club_badge()
-                if st.button("Log out", width="stretch", key="phone_log_out"):
-                    _sign_out()
+                choice = _player_menu_radio(phone=True)
+            elif st.button("Log out", width="stretch", key="phone_log_out"):
+                _sign_out()
     return choice
 
 
@@ -492,7 +518,7 @@ def render_player(user: dict) -> None:
     st.markdown('<div class="volt-hub"></div>', unsafe_allow_html=True)
     if viewing_on_phone():
         choice = _phone_bar(user, play_menu=True)
-        heading = "Modify avatar" if st.session_state.screen == "avatar" else choice
+        heading = "Edit avatar" if st.session_state.screen == "avatar" else choice
         st.markdown(
             f'<p class="volt-sub volt-phone-section">{escape(heading)}</p>',
             unsafe_allow_html=True,
@@ -568,7 +594,11 @@ def render_avatar(user: dict, first_time: bool) -> None:
     if first_time:
         volt_header(
             "Build your player",
-            "Pick a look. You can change it later from your player icon.",
+            (
+                "Pick a look. You can change it later from Menu, then Edit avatar."
+                if viewing_on_phone()
+                else "Pick a look. You can change it later from your player icon."
+            ),
         )
     else:
         st.caption("Pick a look. Save it when you are charged up.")
@@ -706,7 +736,11 @@ def render_avatar(user: dict, first_time: bool) -> None:
             return
         st.session_state.user = data["user"]
         st.session_state.screen = "home"
-        st.session_state.avatar_notice = "A starter player is ready. Change it any time from your player icon."
+        st.session_state.avatar_notice = (
+            "A starter player is ready. Change it any time from Menu, then Edit avatar."
+            if viewing_on_phone()
+            else "A starter player is ready. Change it any time from your player icon."
+        )
         _clear_avatar_fields(user_id)
         st.rerun()
 
@@ -922,6 +956,69 @@ def render_home(user: dict) -> None:
         _sign_out()
 
 
+_AUTH_HANDLED = "auth_bridge_seen"
+
+
+def _apply_bridge(mode: str, grant: str = "") -> None:
+    from auth_bridge import auth_bridge
+
+    value = auth_bridge(api_public_url(), mode, grant, key=f"volt_auth_{mode}")
+    if not isinstance(value, dict):
+        return
+    if not isinstance(value, dict) or not value.get("nonce"):
+        return
+    if value["nonce"] == st.session_state.get(_AUTH_HANDLED):
+        return
+    st.session_state[_AUTH_HANDLED] = value["nonce"]
+    if value.get("code"):
+        try:
+            data = api_request("POST", "/auth/exchange", {"code": value["code"]})
+        except ApiError:
+            st.session_state.skip_restore = True
+        else:
+            if data.get("kind") == "session":
+                apply_session(data)
+            else:
+                st.session_state.skip_restore = True
+        st.rerun()
+    elif value.get("stay") == "0":
+        st.session_state.skip_restore = True
+        st.rerun()
+    elif value.get("planted"):
+        st.session_state.cookie_grant = None
+        st.rerun()
+    elif value.get("signed_out"):
+        st.session_state.signing_out = False
+        st.session_state.skip_restore = True
+        st.session_state.cookie_grant = None
+        st.rerun()
+
+
+def _restore_screen() -> None:
+    st.markdown(
+        '<p class="volt-kicker">VOLT PITCH</p><h1>Getting you back on the pitch.</h1>',
+        unsafe_allow_html=True,
+    )
+    _apply_bridge("restore")
+    if st.button("Log in", type="primary"):
+        st.session_state.skip_restore = True
+        st.rerun()
+    st.stop()
+
+
+def _logout_screen() -> None:
+    st.markdown(
+        '<p class="volt-kicker">VOLT PITCH</p><h1>Signing out.</h1>',
+        unsafe_allow_html=True,
+    )
+    _apply_bridge("logout")
+    if st.button("Continue", type="primary"):
+        st.session_state.signing_out = False
+        st.session_state.skip_restore = True
+        st.rerun()
+    st.stop()
+
+
 def main() -> None:
     st.set_page_config(
         page_title="Volt Pitch",
@@ -932,10 +1029,20 @@ def main() -> None:
     inject_theme()
     init_state()
     mark_phone()
+    if st.session_state.get("signing_out"):
+        _logout_screen()
     providers = st.session_state.providers
     if providers is None or providers.get("api_down"):
         st.session_state.providers = load_providers()
     consume_handoff()
+    if (
+        not st.session_state.token
+        and not st.session_state.get("skip_restore")
+        and not st.session_state.get("google_pending")
+    ):
+        _restore_screen()
+    if st.session_state.get("cookie_grant"):
+        _apply_bridge("plant", st.session_state.cookie_grant)
     user = st.session_state.user if st.session_state.token else None
     if user and "needs_avatar" not in user:
         try:

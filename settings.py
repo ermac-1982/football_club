@@ -66,6 +66,13 @@ def database_name() -> str:
     return name or POSTGRES_DB
 
 
+def allowed_origins() -> list[str]:
+    origins = {APP_URL}
+    if not PRODUCTION:
+        origins.update({"http://localhost:8501", "http://127.0.0.1:8501"})
+    return sorted(origins)
+
+
 def google_enabled() -> bool:
     return bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
 

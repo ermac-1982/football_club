@@ -46,3 +46,5 @@ services:
           name: football-club-api
           type: web
           property: hostport
+      - key: API_PUBLIC_URL
+        value: https://football-club-api.onrender.com

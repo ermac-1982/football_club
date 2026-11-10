@@ -18,11 +18,12 @@ from sqlalchemy.orm import Session
 
 import settings
 from constants import ACCOUNT_TYPES
-from db import EmailCode, Handoff, Identity, User, utcnow
+from db import EmailCode, Handoff, Identity, RefreshToken, User, utcnow
 
 logger = logging.getLogger("football_club.auth")
 
-SESSION_DAYS = 14
+ACCESS_MINUTES = 60
+REFRESH_DAYS = 30
 PASSWORD_ITERATIONS = 310_000
 
 
@@ -127,13 +128,21 @@ def issue_session(user: User) -> str:
         "sub": str(user.id),
         "typ": "session",
         "iat": int(now.timestamp()),
-        "exp": int((now + timedelta(days=SESSION_DAYS)).timestamp()),
+        "exp": int((now + timedelta(minutes=ACCESS_MINUTES)).timestamp()),
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
 
 
-def session_payload(user: User) -> dict:
-    return {"token": issue_session(user), "user": public_user(user)}
+def session_payload(user: User, *, cookie_grant: str | None = None) -> dict:
+    payload = {"token": issue_session(user), "user": public_user(user)}
+    if cookie_grant:
+        payload["cookie_grant"] = cookie_grant
+    return payload
+
+
+def persistent_session(db: Session, user: User) -> dict:
+    grant = _create_handoff(db, "cookie_grant", {"user_id": str(user.id)})
+    return session_payload(user, cookie_grant=grant)
 
 
 def _decode(token: str, expected_typ: str) -> dict:
@@ -167,6 +176,7 @@ def _sweep_expired(db: Session) -> None:
     now = utcnow()
     db.query(EmailCode).filter(EmailCode.expires_at < now).delete(synchronize_session=False)
     db.query(Handoff).filter(Handoff.expires_at < now).delete(synchronize_session=False)
+    db.query(RefreshToken).filter(RefreshToken.expires_at < now).delete(synchronize_session=False)
 
 
 def register_account(
@@ -293,7 +303,10 @@ def exchange_handoff(db: Session, code: str) -> dict:
             user = None
         if user is None:
             raise AuthError(400, "That sign-in link has expired. Try again.")
-        return {"kind": "session", **session_payload(user)}
+        body = session_payload(user)
+        if not payload.get("remembered"):
+            body["cookie_grant"] = _create_handoff(db, "cookie_grant", {"user_id": str(user.id)})
+        return {"kind": "session", **body}
 
     if kind == "google_pending":
         email = str(payload.get("email") or "")
@@ -458,3 +471,90 @@ def complete_google(db: Session, pending_token: str, first_name: str, account_ty
         db.commit()
     db.refresh(user)
     return user
+
+
+def _consume_grant(db: Session, code: str) -> dict:
+    row = db.query(Handoff).filter(Handoff.code_hash == _hash_secret(code)).one_or_none()
+    now = utcnow()
+    if row is None or row.used_at is not None or row.kind != "cookie_grant":
+        raise AuthError(401, "Sign in required.")
+    if _aware(row.expires_at) < now:
+        raise AuthError(401, "Sign in required.")
+    payload = dict(row.payload or {})
+    row.used_at = now
+    db.commit()
+    return payload
+
+
+def issue_refresh_token(db: Session, user: User, family_id: uuid.UUID | None = None) -> str:
+    raw = secrets.token_urlsafe(32)
+    db.add(
+        RefreshToken(
+            user_id=user.id,
+            token_hash=_hash_secret(raw),
+            family_id=family_id or uuid.uuid4(),
+            expires_at=utcnow() + timedelta(days=REFRESH_DAYS),
+        )
+    )
+    db.commit()
+    return raw
+
+
+def plant_refresh_token(db: Session, grant: str) -> str:
+    payload = _consume_grant(db, grant)
+    try:
+        user = db.get(User, uuid.UUID(str(payload.get("user_id"))))
+    except (TypeError, ValueError):
+        user = None
+    if user is None:
+        raise AuthError(401, "Sign in required.")
+    return issue_refresh_token(db, user)
+
+
+def _revoke_family(db: Session, family_id: uuid.UUID, now: datetime) -> None:
+    db.query(RefreshToken).filter(
+        RefreshToken.family_id == family_id,
+        RefreshToken.revoked_at.is_(None),
+    ).update({RefreshToken.revoked_at: now}, synchronize_session=False)
+
+
+def rotate_refresh_token(db: Session, raw: str) -> tuple[User, str]:
+    _sweep_expired(db)
+    row = (
+        db.query(RefreshToken)
+        .filter(RefreshToken.token_hash == _hash_secret(raw or ""))
+        .with_for_update()
+        .one_or_none()
+    )
+    now = utcnow()
+    if row is None:
+        raise AuthError(401, "Sign in required.")
+    if row.revoked_at is not None:
+        logger.info("refresh token reuse for user %s", row.user_id)
+        _revoke_family(db, row.family_id, now)
+        db.commit()
+        raise AuthError(401, "Sign in required.")
+    if _aware(row.expires_at) < now:
+        raise AuthError(401, "Sign in required.")
+    user = db.get(User, row.user_id)
+    if user is None:
+        raise AuthError(401, "Sign in required.")
+    row.revoked_at = now
+    db.commit()
+    return user, issue_refresh_token(db, user, row.family_id)
+
+
+def refresh_persistent_login(db: Session, raw: str) -> tuple[str, str]:
+    user, new_raw = rotate_refresh_token(db, raw)
+    code = _create_handoff(db, "session", {"user_id": str(user.id), "remembered": True})
+    return code, new_raw
+
+
+def revoke_refresh_token(db: Session, raw: str) -> None:
+    if not raw:
+        return
+    row = db.query(RefreshToken).filter(RefreshToken.token_hash == _hash_secret(raw)).one_or_none()
+    if row is None:
+        return
+    _revoke_family(db, row.family_id, utcnow())
+    db.commit()

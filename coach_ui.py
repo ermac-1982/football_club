@@ -47,8 +47,7 @@ def render_situational_coach(user: dict) -> None:
             _render_feedback()
         else:
             _render_path(path)
-    if st.session_state.get("coach_surge_open"):
-        _surge_dialog(user)
+    render_power_surge(user)
 
 
 def _show_error(exc: Exception) -> None:
@@ -213,6 +212,7 @@ def _render_play() -> None:
     st.session_state.coach_feedback_n = st.session_state.get("coach_feedback_n", 0) + 1
     st.session_state.coach_nonce = nonce + 1
     if result.get("sectionJustCompleted"):
+        st.session_state.surge_bonus = None
         st.session_state.coach_surge_open = True
         st.session_state.coach_surge_sound_played = False
     _screen("feedback")
@@ -304,10 +304,18 @@ def _play_surge() -> None:
     st.audio(base64.b64decode(_surge_wav()), format="audio/wav", autoplay=True)
 
 
+def render_power_surge(user: dict) -> None:
+    if st.session_state.get("coach_surge_open"):
+        _surge_dialog(user)
+
+
 @st.dialog("Power surge", width="small", dismissible=False)
 def _surge_dialog(user: dict) -> None:
     result = st.session_state.get("coach_feedback") or {}
-    bonus = int(result.get("sectionBonus") or 500)
+    bonus = st.session_state.get("surge_bonus")
+    if not bonus:
+        bonus = int(result.get("sectionBonus") or 500)
+    bonus = int(bonus)
     import app as hub
 
     portrait = hub._portrait_url(user.get("avatar"))
@@ -338,6 +346,7 @@ def _surge_dialog(user: dict) -> None:
     if st.button("BACK TO THE PITCH →", type="primary", width="stretch", key="coach_surge_continue"):
         st.session_state.coach_surge_open = False
         st.session_state.coach_surge_sound_played = False
+        st.session_state.surge_bonus = None
         st.rerun()
 
 

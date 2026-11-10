@@ -12,6 +12,7 @@ from avatar_service import public_avatar
 from coach_engine import total_score
 from constants import CLUB_COLOURS
 from db import Club, ClubMember, CoachAttempt, User, utcnow
+from video_service import points_by_user
 
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 '\-]*$")
 
@@ -207,6 +208,7 @@ def _squad(db: Session, club: Club, viewer_id: uuid.UUID) -> dict:
         attempts = db.query(CoachAttempt).filter(CoachAttempt.user_id.in_(list(by_user))).all()
         for attempt in attempts:
             by_user.setdefault(attempt.user_id, {}).setdefault(attempt.scenario_id, []).append(attempt.score)
+    clip_points = points_by_user(db, list(by_user))
     entries = []
     for member in members:
         avatar = public_avatar(member.avatar)
@@ -214,7 +216,7 @@ def _squad(db: Session, club: Club, viewer_id: uuid.UUID) -> dict:
             {
                 "user_id": str(member.id),
                 "name": (avatar or {}).get("nickname") or member.first_name,
-                "score": total_score(by_user.get(member.id) or {}),
+                "score": total_score(by_user.get(member.id) or {}) + clip_points.get(member.id, 0),
                 "avatar": avatar,
                 "you": member.id == viewer_id,
             }

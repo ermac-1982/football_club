@@ -7,9 +7,9 @@ from html import escape
 import uuid
 from typing import Annotated, Literal, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, EmailStr, field_validator
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -24,10 +24,13 @@ from auth_service import (
     exchange_handoff,
     finish_google,
     google_authorize_url,
+    persistent_session,
+    plant_refresh_token,
     public_user,
     login_with_password,
+    refresh_persistent_login,
     register_account,
-    session_payload,
+    revoke_refresh_token,
     user_from_session,
 )
 from avatar_service import save_avatar, skip_avatar
@@ -42,6 +45,7 @@ from club_service import (
     update_club,
 )
 from coach_service import CoachError, answer_scenario, path_for, scenario_for
+from video_service import VideoError, record_watch, watched_ids
 from constants import ACCOUNT_TYPES
 from db import engine, get_db, init_db
 
@@ -58,7 +62,8 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="Football Club", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.allowed_origins(),
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -160,13 +165,47 @@ def providers() -> dict[str, bool]:
     }
 
 
+REFRESH_COOKIE = "volt_refresh"
+REFRESH_MAX_AGE = 30 * 24 * 60 * 60
+
+
+def _cookie_secure() -> bool:
+    return settings.APP_URL.startswith("https://")
+
+
+def _set_refresh_cookie(response: Response, raw: str) -> None:
+    response.set_cookie(
+        REFRESH_COOKIE,
+        raw,
+        max_age=REFRESH_MAX_AGE,
+        httponly=True,
+        secure=_cookie_secure(),
+        samesite="lax",
+        path="/auth",
+    )
+
+
+def _clear_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(
+        REFRESH_COOKIE,
+        path="/auth",
+        httponly=True,
+        secure=_cookie_secure(),
+        samesite="lax",
+    )
+
+
+class CookieGrant(BaseModel):
+    grant: str
+
+
 @app.post("/auth/register")
 def register(body: RegisterRequest, db: Session = Depends(get_db)) -> dict:
     try:
         user = register_account(db, body.email, body.first_name, body.account_type, body.password)
     except AuthError as exc:
         raise _auth_http(exc) from exc
-    return session_payload(user)
+    return persistent_session(db, user)
 
 
 @app.post("/auth/login")
@@ -175,7 +214,36 @@ def login(body: LoginRequest, db: Session = Depends(get_db)) -> dict:
         user = login_with_password(db, body.email, body.password)
     except AuthError as exc:
         raise _auth_http(exc) from exc
-    return session_payload(user)
+    return persistent_session(db, user)
+
+
+@app.post("/auth/cookie")
+def plant_cookie(body: CookieGrant, response: Response, db: Session = Depends(get_db)) -> dict:
+    try:
+        raw = plant_refresh_token(db, body.grant.strip())
+    except AuthError as exc:
+        raise _auth_http(exc) from exc
+    _set_refresh_cookie(response, raw)
+    return {"ok": True}
+
+
+@app.post("/auth/refresh")
+def refresh_login(request: Request, response: Response, db: Session = Depends(get_db)):
+    try:
+        code, raw = refresh_persistent_login(db, request.cookies.get(REFRESH_COOKIE, ""))
+    except AuthError:
+        failed = JSONResponse({"detail": "Sign in required."}, status_code=401)
+        _clear_refresh_cookie(failed)
+        return failed
+    _set_refresh_cookie(response, raw)
+    return {"code": code}
+
+
+@app.post("/auth/logout")
+def logout(request: Request, response: Response, db: Session = Depends(get_db)) -> dict:
+    revoke_refresh_token(db, request.cookies.get(REFRESH_COOKIE, ""))
+    _clear_refresh_cookie(response)
+    return {"ok": True}
 
 
 @app.post("/auth/exchange")
@@ -238,7 +306,7 @@ def google_complete(body: GoogleCompleteRequest, db: Session = Depends(get_db)) 
         user = complete_google(db, body.pending_token, body.first_name, body.account_type)
     except AuthError as exc:
         raise _auth_http(exc) from exc
-    return session_payload(user)
+    return persistent_session(db, user)
 
 
 @app.get("/auth/me")
@@ -343,6 +411,23 @@ def delete_my_club(user=Depends(get_current_user), db: Session = Depends(get_db)
     except ClubError as exc:
         raise _club_http(exc) from exc
     return {"club": None}
+
+
+@app.get("/me/videos/watched")
+def get_watched_videos(user=Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    return {"videoIds": watched_ids(db, user)}
+
+
+@app.post("/me/videos/{video_id}/watch")
+def post_watch_video(
+    video_id: str,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    try:
+        return record_watch(db, user, video_id)
+    except VideoError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
 
 @app.get("/me/club/leaderboard")

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+</head>
+<body>
+<script>
+  function send(type, data) {
+    window.parent.postMessage(Object.assign({ isStreamlitMessage: true, type: type }, data || {}), "*");
+  }
+  let started = false;
+  const nonce = String(Date.now()) + Math.random();
+  function finish(value) {
+    value.nonce = nonce;
+    send("streamlit:setComponentValue", { value: value, dataType: "json" });
+  }
+  window.addEventListener("message", (event) => {
+    if (!event.data || event.data.type !== "streamlit:render" || started) return;
+    const args = event.data.args || {};
+    if (!args.api || !args.mode) return;
+    started = true;
+    const api = args.api;
+    const mode = args.mode;
+    const grant = args.grant || "";
+    if (mode === "logout") {
+      fetch(api + "/auth/logout", { method: "POST", credentials: "include" })
+        .finally(() => finish({ signed_out: true }));
+      return;
+    }
+    if (mode === "plant") {
+      fetch(api + "/auth/cookie", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ grant: grant }),
+      }).finally(() => finish({ planted: true }));
+      return;
+    }
+    fetch(api + "/auth/refresh", { method: "POST", credentials: "include" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => finish(data && data.code ? { code: data.code } : { stay: "0" }))
+      .catch(() => finish({ stay: "0" }));
+  });
+  send("streamlit:componentReady", { apiVersion: 1 });
+  send("streamlit:setFrameHeight", { height: 0 });
+</script>
+</body>
+</html>

@@ -206,6 +206,41 @@ class ClubMember(Base):
     club: Mapped["Club"] = relationship(back_populates="members")
 
 
+class VideoWatch(Base):
+    """One charge per player per clip. Rewatching does not add points again."""
+
+    __tablename__ = "video_watches"
+    __table_args__ = (UniqueConstraint("user_id", "video_id", name="uq_video_watch"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    video_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    points: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+
+
+class RefreshToken(Base):
+    """One device's remembered login. The raw token is only stored as a hash."""
+
+    __tablename__ = "refresh_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    token_hash: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    family_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), nullable=False, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+
+
 class Handoff(Base):
     """One-time code that moves a finished API login back into the Streamlit app."""
 
@@ -251,6 +286,8 @@ REQUIRED_COLUMNS = {
     "coach_attempts": {"id", "user_id", "scenario_id", "score", "result", "created_at"},
     "clubs": {"id", "name", "name_key", "primary_color", "accent_color", "coach_id", "created_at"},
     "club_members": {"user_id", "club_id", "joined_at"},
+    "video_watches": {"id", "user_id", "video_id", "points", "created_at"},
+    "refresh_tokens": {"id", "user_id", "token_hash", "family_id", "expires_at", "created_at"},
 }
 
 COLUMN_ADDITIONS = {
