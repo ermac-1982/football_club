@@ -352,6 +352,16 @@ def validate_library() -> list[str]:
         shape_x.extend(float(spot["x"]) for spot in scenario["correctPositions"].values())
         if min(shape_x) > 20 or max(shape_x) < 80 or max(shape_x) - min(shape_x) < 64:
             problems.append(f"{scenario['id']} width {min(shape_x):.0f}-{max(shape_x):.0f}")
+        by_answer = {player["id"]: player for player in answer}
+        if by_answer["st"]["y"] < 64:
+            problems.append(f"{scenario['id']} striker is not attacking")
+        for wing in ("lw", "rw"):
+            if by_answer[wing]["y"] < 56:
+                problems.append(f"{scenario['id']} {wing} is not attacking")
+        if float(carrier_player["y"]) >= 60:
+            up = [player for player in answer if player["id"] != "gk" and player["y"] >= 58]
+            if len(up) < 3:
+                problems.append(f"{scenario['id']} attack is left alone")
     if any(len(rows) != 4 for rows in by_section.values()):
         problems.append(f"section sizes {[len(rows) for rows in by_section.values()]}")
     return problems
