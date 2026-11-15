@@ -15,6 +15,7 @@ VIDEO_DIR = Path(__file__).resolve().parent / "assets" / "videos"
 
 CATALOG = (
     ("form_231.mp4", "FORM", "2-3-1 Formation"),
+    ("shape_231.mp4", "SHAPE", "2-3-1 Shape"),
     ("position_gk_231.mp4", "KEEPER", "Goalkeeper"),
     ("position_df_231.mp4", "DEFEND", "Defender"),
     ("position_cm_231.mp4", "MIDFIELD", "Midfielder"),
@@ -92,6 +93,7 @@ def _claim_watch(video_id: str) -> bool:
     if not result.get("awarded"):
         return False
     st.session_state.surge_bonus = int(result.get("points") or VIDEO_POINTS)
+    st.session_state.surge_reason = "Clip watched"
     st.session_state.coach_surge_open = True
     st.session_state.coach_surge_sound_played = False
     return True

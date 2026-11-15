@@ -167,6 +167,28 @@ class CoachAttempt(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
 
 
+class PositionAttempt(Base):
+    __tablename__ = "position_attempts"
+    __table_args__ = (
+        CheckConstraint("score >= 0 AND score <= 100", name="ck_position_attempt_score"),
+        CheckConstraint(
+            "result IN ('correct', 'partial', 'incorrect')",
+            name="ck_position_attempt_result",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    scenario_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    score: Mapped[int] = mapped_column(Integer, nullable=False)
+    result: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+
+
 class Club(Base):
     """A coach's squad. Players join one club at a time."""
 

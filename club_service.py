@@ -1,4 +1,4 @@
-"""Clubs created by coaches, joined by players, ranked by Situational Coach score."""
+"""Clubs created by coaches, joined by players, ranked by coaching and clip scores."""
 
 from __future__ import annotations
 
@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session, joinedload
 from avatar_service import public_avatar
 from coach_engine import total_score
 from constants import CLUB_COLOURS
-from db import Club, ClubMember, CoachAttempt, User, utcnow
+from db import Club, ClubMember, CoachAttempt, PositionAttempt, User, utcnow
+from position_engine import total_score as quiz_score
 from video_service import points_by_user
 
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 '\-]*$")
@@ -204,10 +205,14 @@ def _squad(db: Session, club: Club, viewer_id: uuid.UUID) -> dict:
         .all()
     )
     by_user: dict[uuid.UUID, dict[int, list[int]]] = {member.id: {} for member in members}
+    quiz_by_user: dict[uuid.UUID, dict[int, list[int]]] = {member.id: {} for member in members}
     if by_user:
         attempts = db.query(CoachAttempt).filter(CoachAttempt.user_id.in_(list(by_user))).all()
         for attempt in attempts:
             by_user.setdefault(attempt.user_id, {}).setdefault(attempt.scenario_id, []).append(attempt.score)
+        quiz_rows = db.query(PositionAttempt).filter(PositionAttempt.user_id.in_(list(by_user))).all()
+        for attempt in quiz_rows:
+            quiz_by_user.setdefault(attempt.user_id, {}).setdefault(attempt.scenario_id, []).append(attempt.score)
     clip_points = points_by_user(db, list(by_user))
     entries = []
     for member in members:
@@ -216,7 +221,9 @@ def _squad(db: Session, club: Club, viewer_id: uuid.UUID) -> dict:
             {
                 "user_id": str(member.id),
                 "name": (avatar or {}).get("nickname") or member.first_name,
-                "score": total_score(by_user.get(member.id) or {}) + clip_points.get(member.id, 0),
+                "score": total_score(by_user.get(member.id) or {})
+                + quiz_score(quiz_by_user.get(member.id) or {})
+                + clip_points.get(member.id, 0),
                 "avatar": avatar,
                 "you": member.id == viewer_id,
             }

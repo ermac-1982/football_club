@@ -21,6 +21,8 @@ SMTP_PORT = int(os.getenv("SMTP_PORT") or "587")
 SMTP_USERNAME = os.getenv("SMTP_USERNAME", "").strip()
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 SMTP_FROM = os.getenv("SMTP_FROM", "Football Club <noreply@localhost>").strip()
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "").strip()
+RESEND_FROM = os.getenv("RESEND_FROM", "Volt Pitch <onboarding@resend.dev>").strip()
 
 POSTGRES_USER = os.getenv("POSTGRES_USER", "postgres").strip() or "postgres"
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "")
@@ -89,6 +91,10 @@ def google_redirect_uri() -> str:
 
 def smtp_configured() -> bool:
     return bool(SMTP_HOST and SMTP_FROM)
+
+
+def email_delivery_configured() -> bool:
+    return bool(RESEND_API_KEY and RESEND_FROM) or smtp_configured()
 
 
 def validate() -> None:

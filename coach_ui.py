@@ -9,11 +9,35 @@ import struct
 import wave
 from functools import lru_cache
 from html import escape
+from pathlib import Path
 
 import streamlit as st
 
-from coach_engine import get_scenario
+from coach_engine import get_scenario as coach_scenario
+from position_engine import get_scenario as quiz_scenario
 from coach_pitch import coach_pitch
+
+
+class _Track:
+    def __init__(self, prefix: str, api: str, lookup):
+        self.prefix = prefix
+        self.api = api
+        self.lookup = lookup
+        self.screen = f"{prefix}_screen"
+        self.section = f"{prefix}_section_id"
+        self.scenario = f"{prefix}_scenario_id"
+        self.nonce = f"{prefix}_nonce"
+        self.handled = f"{prefix}_handled"
+        self.feedback = f"{prefix}_feedback"
+        self.feedback_n = f"{prefix}_feedback_n"
+
+    def button(self, name: str) -> str:
+        return f"{self.prefix}_{name}"
+
+
+_COACH = _Track("coach", "/coach", coach_scenario)
+_QUIZ = _Track("pos", "/position", quiz_scenario)
+_track = _COACH
 
 
 def _api(method: str, path: str, payload: dict | None = None) -> dict:
@@ -23,19 +47,31 @@ def _api(method: str, path: str, payload: dict | None = None) -> dict:
 
 
 def _screen(name: str) -> None:
-    st.session_state.coach_screen = name
+    st.session_state[_track.screen] = name
 
 
 def render_situational_coach(user: dict) -> None:
+    global _track
+    _track = _COACH
+    _render_track(user)
+
+
+def render_positional_quiz(user: dict) -> None:
+    global _track
+    _track = _QUIZ
+    _render_track(user)
+
+
+def _render_track(user: dict) -> None:
     st.markdown('<div class="volt-coach"></div>', unsafe_allow_html=True)
-    screen = st.session_state.get("coach_screen") or "path"
+    screen = st.session_state.get(_track.screen) or "path"
     if screen == "surge":
         st.session_state.coach_surge_open = True
         screen = "feedback"
-        st.session_state.coach_screen = "feedback"
+        st.session_state[_track.screen] = "feedback"
     path = None
     try:
-        path = _api("GET", "/coach/path")
+        path = _api("GET", f"{_track.api}/path")
     except Exception as exc:
         _show_error(exc)
     if path is not None:
@@ -95,7 +131,7 @@ def _render_path(path: dict) -> None:
             unsafe_allow_html=True,
         )
     label = "Replay the path" if path["allComplete"] else "Start Drill"
-    if st.button(label, type="primary", width="stretch", key="coach_start"):
+    if st.button(label, type="primary", width="stretch", key=_track.button("start")):
         scenario_id = 1 if path["allComplete"] else path["nextScenarioId"]
         _open_scenario(path, scenario_id)
     open_sections = [section for section in path["sections"] if section["status"] != "locked"]
@@ -110,9 +146,10 @@ def _render_path(path: dict) -> None:
             section_ids,
             index=section_ids.index(current_id),
             format_func=lambda section_id: _section(path, section_id)["title"],
+            key=_track.button("section_pick"),
         )
-        if st.button("Open section", width="stretch", key="coach_open_section"):
-            st.session_state.coach_section_id = picked
+        if st.button("Open section", width="stretch", key=_track.button("open_section")):
+            st.session_state[_track.section] = picked
             _screen("section")
             st.rerun()
 
@@ -140,11 +177,11 @@ def _path_html(sections: list[dict]) -> str:
 
 
 def _render_section(path: dict) -> None:
-    section = _section(path, st.session_state.get("coach_section_id"))
+    section = _section(path, st.session_state.get(_track.section))
     if section is None:
         _screen("path")
         st.rerun()
-    if st.button("Back to path", key="coach_section_back"):
+    if st.button("Back to path", key=_track.button("section_back")):
         _screen("path")
         st.rerun()
     st.markdown(
@@ -170,49 +207,54 @@ def _render_section(path: dict) -> None:
         options,
         index=options.index(pending),
         format_func=lambda scenario_id: labels[scenario_id],
+        key=_track.button("drill_pick"),
     )
-    if st.button("Start Drill", type="primary", width="stretch", key="coach_section_start"):
+    if st.button("Start Drill", type="primary", width="stretch", key=_track.button("section_start")):
         _open_scenario(path, picked)
 
 
 def _render_play() -> None:
-    scenario_id = st.session_state.get("coach_scenario_id")
-    if st.button("Back", key="coach_play_back"):
+    scenario_id = st.session_state.get(_track.scenario)
+    if st.button("Back", key=_track.button("play_back")):
         _screen("section")
         st.rerun()
     try:
-        scenario = _api("GET", f"/coach/scenarios/{scenario_id}")
+        scenario = _api("GET", f"{_track.api}/scenarios/{scenario_id}")
     except Exception as exc:
         _show_error(exc)
         return
     st.markdown(
         f"""
-        <p class="volt-kicker">{escape(scenario["difficulty"].upper())} · {escape(scenario["mode"].upper())}</p>
+        <p class="volt-kicker">{escape(scenario["difficulty"].upper())} · {escape("SHAPE" if scenario["mode"] == "positions" else scenario["mode"].upper())}</p>
         <h2>{escape(scenario["title"])}</h2>
         <p>{escape(scenario["description"])}</p>
         """,
         unsafe_allow_html=True,
     )
-    nonce = st.session_state.get("coach_nonce", 0)
-    value = coach_pitch(scenario, key=f"pitch-{scenario_id}-{nonce}")
+    nonce = st.session_state.get(_track.nonce, 0)
+    value = coach_pitch(scenario, key=f"{_track.prefix}-pitch-{scenario_id}-{nonce}")
     if not isinstance(value, dict):
         return
     token = value.get("token")
-    if not token or token == st.session_state.get("coach_handled") or value.get("scenarioId") != scenario_id:
+    if not token or token == st.session_state.get(_track.handled) or value.get("scenarioId") != scenario_id:
         return
-    body = {key: value[key] for key in ("x", "y", "action", "targetPlayerId") if key in value}
+    if value.get("placements"):
+        body = {"placements": value["placements"]}
+    else:
+        body = {key: value[key] for key in ("x", "y", "action", "targetPlayerId") if key in value}
     try:
-        result = _api("POST", f"/coach/scenarios/{scenario_id}/answer", body)
+        result = _api("POST", f"{_track.api}/scenarios/{scenario_id}/answer", body)
     except Exception as exc:
-        st.session_state.coach_handled = token
+        st.session_state[_track.handled] = token
         _show_error(exc)
         return
-    st.session_state.coach_handled = token
-    st.session_state.coach_feedback = result
-    st.session_state.coach_feedback_n = st.session_state.get("coach_feedback_n", 0) + 1
-    st.session_state.coach_nonce = nonce + 1
+    st.session_state[_track.handled] = token
+    st.session_state[_track.feedback] = result
+    st.session_state[_track.feedback_n] = st.session_state.get(_track.feedback_n, 0) + 1
+    st.session_state[_track.nonce] = nonce + 1
     if result.get("sectionJustCompleted"):
-        st.session_state.surge_bonus = None
+        st.session_state.surge_bonus = int(result.get("sectionBonus") or 500)
+        st.session_state.surge_reason = "Section clear"
         st.session_state.coach_surge_open = True
         st.session_state.coach_surge_sound_played = False
     _screen("feedback")
@@ -220,8 +262,8 @@ def _render_play() -> None:
 
 
 def _render_feedback() -> None:
-    result = st.session_state.get("coach_feedback") or {}
-    scenario_id = result.get("scenarioId") or st.session_state.get("coach_scenario_id")
+    result = st.session_state.get(_track.feedback) or {}
+    scenario_id = result.get("scenarioId") or st.session_state.get(_track.scenario)
     headline = {"correct": "Correct", "partial": "Partially correct", "incorrect": "Incorrect"}.get(
         result.get("result"), "Result"
     )
@@ -240,7 +282,7 @@ def _render_feedback() -> None:
     if result.get("sectionComplete") and not result.get("sectionJustCompleted"):
         st.success("Section complete. The next part of the path is open.")
     try:
-        scenario = _api("GET", f"/coach/scenarios/{scenario_id}")
+        scenario = _api("GET", f"{_track.api}/scenarios/{scenario_id}")
     except Exception as exc:
         _show_error(exc)
         scenario = None
@@ -251,24 +293,25 @@ def _render_feedback() -> None:
         review["review"] = {
             "submitted": result.get("submitted"),
             "correctPosition": result.get("correctPosition"),
+            "correctPositions": result.get("correctPositions"),
             "correctAction": result.get("correctAction"),
             "score": result.get("score", 0),
         }
-        coach_pitch(review, key=f"review-{scenario_id}-{st.session_state.get('coach_feedback_n', 0)}")
+        coach_pitch(review, key=f"{_track.prefix}-review-{scenario_id}-{st.session_state.get(_track.feedback_n, 0)}")
     columns = st.columns(2)
     with columns[0]:
-        if st.button("Try again", width="stretch", key="coach_retry"):
-            st.session_state.coach_nonce = st.session_state.get("coach_nonce", 0) + 1
+        if st.button("Try again", width="stretch", key=_track.button("retry")):
+            st.session_state[_track.nonce] = st.session_state.get(_track.nonce, 0) + 1
             _screen("play")
             st.rerun()
     with columns[1]:
         nxt = result.get("nextScenarioId")
         label = "Next drill" if nxt else "Back to path"
-        if st.button(label, type="primary", width="stretch", key="coach_next"):
+        if st.button(label, type="primary", width="stretch", key=_track.button("next")):
             if nxt:
-                st.session_state.coach_scenario_id = nxt
-                st.session_state.coach_section_id = get_scenario(nxt)["section"]
-                st.session_state.coach_nonce = st.session_state.get("coach_nonce", 0) + 1
+                st.session_state[_track.scenario] = nxt
+                st.session_state[_track.section] = _track.lookup(nxt)["section"]
+                st.session_state[_track.nonce] = st.session_state.get(_track.nonce, 0) + 1
                 _screen("play")
             else:
                 _screen("path")
@@ -304,41 +347,54 @@ def _play_surge() -> None:
     st.audio(base64.b64decode(_surge_wav()), format="audio/wav", autoplay=True)
 
 
+def _charge_art_url() -> str:
+    from streamlit.elements.lib.image_utils import image_to_url
+    from streamlit.elements.lib.layout_utils import LayoutConfig
+
+    path = Path(__file__).resolve().parent / "assets" / "surge" / "charge_up.png"
+    return image_to_url(
+        str(path),
+        layout_config=LayoutConfig(width="content"),
+        clamp=False,
+        channels="RGB",
+        output_format="auto",
+        image_id="volt-charge-up",
+    )
+
+
+def _surge_copy() -> tuple[int, str, str]:
+    result = st.session_state.get("coach_feedback") or {}
+    bonus = st.session_state.get("surge_bonus")
+    if not bonus:
+        bonus = int(result.get("sectionBonus") or 500)
+    bonus = int(bonus)
+    reason = st.session_state.get("surge_reason")
+    if not reason:
+        reason = "Section clear" if bonus >= 500 else "Clip watched"
+    label, _, value = str(reason).partition(" ")
+    return bonus, label.upper(), (value or label).upper()
+
+
 def render_power_surge(user: dict) -> None:
     if st.session_state.get("coach_surge_open"):
         _surge_dialog(user)
 
 
 @st.dialog("Power surge", width="small", dismissible=False)
-def _surge_dialog(user: dict) -> None:
-    result = st.session_state.get("coach_feedback") or {}
-    bonus = st.session_state.get("surge_bonus")
-    if not bonus:
-        bonus = int(result.get("sectionBonus") or 500)
-    bonus = int(bonus)
-    import app as hub
-
-    portrait = hub._portrait_url(user.get("avatar"))
+def _surge_dialog(_user: dict) -> None:
+    bonus, label, value = _surge_copy()
+    art = _charge_art_url()
     if not st.session_state.get("coach_surge_sound_played"):
         _play_surge()
         st.session_state.coach_surge_sound_played = True
     st.markdown(
         f"""
         <div class="volt-charge-card">
-          <div class="volt-bolt-bg"></div>
-          <p class="volt-charge-logo"><span>⚡</span> VOLT PITCH</p>
-          <p class="volt-charge-kicker">POWER SURGE!</p>
-          <h1 class="volt-charge-title">CHARGE<br>UP</h1>
-          <div class="volt-charge-hero">
-            <div class="volt-orb"></div>
-            <img class="volt-charge-avatar" src="{escape(portrait)}" alt="Your player">
+          <div class="volt-charge-frame">
+            <img class="volt-charge-art" src="{escape(art)}" alt="">
+            <p class="volt-charge-amount">+{bonus:,} XP</p>
+            <p class="volt-charge-reason"><span>{escape(label)}</span><strong>{escape(value)}</strong></p>
           </div>
-          <div class="volt-xp">
-            <p>⚡ XP BOOST</p>
-            <strong>+{bonus:,} XP</strong>
-          </div>
-          <p class="volt-cheer">YOU'RE UNSTOPPABLE!</p>
-          <p class="volt-cheer-sub">Keep pitching. Keep winning.</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -347,14 +403,19 @@ def _surge_dialog(user: dict) -> None:
         st.session_state.coach_surge_open = False
         st.session_state.coach_surge_sound_played = False
         st.session_state.surge_bonus = None
+        st.session_state.surge_reason = None
         st.rerun()
+    st.markdown(
+        '<p class="volt-charge-foot">VOLT PITCH KIDS FOOTBALL APP</p>',
+        unsafe_allow_html=True,
+    )
 
 
 def _open_scenario(path: dict, scenario_id: int) -> None:
     scenario = _find_scenario(path, scenario_id)
-    st.session_state.coach_scenario_id = scenario_id
-    st.session_state.coach_section_id = _section_for(path, scenario_id)
-    st.session_state.coach_nonce = st.session_state.get("coach_nonce", 0) + 1
+    st.session_state[_track.scenario] = scenario_id
+    st.session_state[_track.section] = _section_for(path, scenario_id)
+    st.session_state[_track.nonce] = st.session_state.get(_track.nonce, 0) + 1
     _screen("play")
     st.rerun()
 

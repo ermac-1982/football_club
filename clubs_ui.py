@@ -250,7 +250,7 @@ def render_leaderboard(user: dict) -> None:
                   <div>
                     <p class="volt-kicker">SQUAD</p>
                     <h2>Join a club first.</h2>
-                    <p>The ranks are the players in your club, ordered by Situational Coach score.</p>
+                    <p>The ranks are the players in your club, ordered by Situational Coach, Positional Quiz, and clip scores.</p>
                   </div>
                 </div>
                 """,
@@ -269,5 +269,5 @@ def render_leaderboard(user: dict) -> None:
     if not ranks:
         st.info("No players have joined this club yet.")
         return
-    st.caption("Ranked by Situational Coach score.")
+    st.caption("Ranked by Situational Coach, Positional Quiz, and clips.")
     st.markdown(_ranks_html(ranks), unsafe_allow_html=True)

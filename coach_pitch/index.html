@@ -95,6 +95,14 @@
         mover.x = spec.review.submitted.x;
         mover.y = spec.review.submitted.y;
       }
+      if (spec.mode === "review" && spec.playMode === "positions" && spec.review && spec.review.submitted) {
+        (spec.review.submitted.placements || []).forEach((place) => {
+          const player = byId(place.id);
+          if (!player) return;
+          player.x = place.x;
+          player.y = place.y;
+        });
+      }
       draw();
       controls();
       if (spec.mode === "review") animateReview();
@@ -135,6 +143,12 @@
         const spot = toSvg(review.correctPosition);
         body += `<circle class="pulse" cx="${spot.x}" cy="${spot.y}" r="5.2" fill="none" stroke="#39ff14" stroke-width="0.7"/>`;
       }
+      if (review && review.correctPositions) {
+        Object.keys(review.correctPositions).forEach((id) => {
+          const spot = toSvg(review.correctPositions[id]);
+          body += `<circle class="pulse" cx="${spot.x}" cy="${spot.y}" r="4.4" fill="none" stroke="#39ff14" stroke-width="0.6"/>`;
+        });
+      }
       if (review && playMode === "decision" && review.correctAction) {
         body += arrowFor(review.correctAction, "#39ff14");
         if (review.submitted && review.score < 100) body += arrowFor(review.submitted, "#ff6b00");
@@ -161,10 +175,12 @@
       const spot = toSvg(player);
       const mine = player.team === "attack";
       const active = player.id === spec.highlightedPlayerId;
+      const shape = (spec.mode === "positions" || spec.playMode === "positions");
+      const mover = shape && mine && !active;
       const selected = choice && choice.action === "pass" && choice.targetPlayerId === player.id;
       const fill = mine ? "#39ff14" : "#ff6b00";
       const text = mine ? "#102010" : "#1a0d00";
-      const ring = active ? "#00e5ff" : (selected ? "#fff" : "transparent");
+      const ring = active ? "#00e5ff" : (selected ? "#fff" : (mover ? "#e8fff0" : "transparent"));
       const keeper = player.goalkeeper ? `<circle cx="${spot.x}" cy="${spot.y}" r="4.6" fill="none" stroke="${fill}" stroke-width="0.45"/>` : "";
       return `${keeper}<circle cx="${spot.x}" cy="${spot.y}" r="3.5" fill="${fill}" stroke="${ring}" stroke-width="0.7"/>
         <text x="${spot.x}" y="${spot.y + 0.9}" text-anchor="middle" font-size="2.3" font-family="Nunito, sans-serif" font-weight="800" fill="${text}">${player.role}</text>`;
@@ -173,13 +189,19 @@
     function controls() {
       const review = spec.mode === "review";
       const decision = (review ? spec.playMode : spec.mode) === "decision";
-      if (review) hint.textContent = "The bright mark shows a strong choice.";
+      if (review) hint.textContent = spec.playMode === "positions"
+        ? "The bright marks show a strong shape."
+        : "The bright mark shows a strong choice.";
       else if (choice && choice.action === "pass") {
         const target = byId(choice.targetPlayerId);
         hint.textContent = `Pass to ${target ? target.role : "that teammate"}. Submit when you're ready.`;
       } else if (choice && choice.action === "shoot") hint.textContent = "Shoot. Submit when you're ready.";
       else if (choice && choice.action === "dribble") hint.textContent = "Dribble. Submit when you're ready.";
-      else hint.textContent = decision
+      else if ((review ? spec.playMode : spec.mode) === "positions") {
+        hint.textContent = review
+          ? "The bright marks show a strong shape."
+          : "Drag the six lime players. Leave the cyan player on the ball.";
+      } else hint.textContent = decision
         ? "Tap a teammate to pass, or choose dribble or shoot."
         : "Drag the cyan player, then submit.";
       bar.innerHTML = "";
@@ -226,6 +248,14 @@
         const mover = highlight();
         value.x = Math.round(mover.x * 10) / 10;
         value.y = Math.round(mover.y * 10) / 10;
+      } else if (playMode === "positions") {
+        value.placements = attacking()
+          .filter((player) => player.id !== spec.highlightedPlayerId)
+          .map((player) => ({
+            id: player.id,
+            x: Math.round(player.x * 10) / 10,
+            y: Math.round(player.y * 10) / 10,
+          }));
       } else if (!choice) {
         return;
       } else {
@@ -255,6 +285,10 @@
         drag = player;
         svg.setPointerCapture(event.pointerId);
       }
+      if (spec.mode === "positions" && player.team === "attack" && player.id !== spec.highlightedPlayerId) {
+        drag = player;
+        svg.setPointerCapture(event.pointerId);
+      }
       if (spec.mode === "decision" && player.team === "attack" && player.id !== spec.highlightedPlayerId) {
         choice = { action: "pass", targetPlayerId: player.id };
         draw();
@@ -264,7 +298,7 @@
     svg.addEventListener("pointermove", (event) => {
       if (!drag) return;
       const point = eventPoint(event);
-      const followBall = Math.hypot(ball.x - drag.x, ball.y - drag.y) < 6;
+      const followBall = spec.mode !== "positions" && Math.hypot(ball.x - drag.x, ball.y - drag.y) < 6;
       drag.x = point.x;
       drag.y = point.y;
       if (followBall) { ball.x = point.x + 2; ball.y = point.y + 1; }
@@ -274,15 +308,27 @@
     svg.addEventListener("pointercancel", () => { drag = null; });
 
     function animateReview() {
-      if (!spec.review || spec.playMode !== "positioning" || !spec.review.correctPosition) return;
-      const mover = highlight();
-      const start = { x: mover.x, y: mover.y };
-      const end = spec.review.correctPosition;
+      const review = spec.review;
+      if (!review) return;
+      let movers = [];
+      if (spec.playMode === "positioning" && review.correctPosition) {
+        const mover = highlight();
+        movers = [{ player: mover, start: { x: mover.x, y: mover.y }, end: review.correctPosition }];
+      } else if (spec.playMode === "positions" && review.correctPositions) {
+        movers = Object.keys(review.correctPositions).map((id) => {
+          const player = byId(id);
+          if (!player) return null;
+          return { player: player, start: { x: player.x, y: player.y }, end: review.correctPositions[id] };
+        }).filter(Boolean);
+      }
+      if (!movers.length) return;
       const begun = performance.now();
       function frame(now) {
         const t = Math.min(1, (now - begun) / 900);
-        mover.x = start.x + (end.x - start.x) * t;
-        mover.y = start.y + (end.y - start.y) * t;
+        movers.forEach((row) => {
+          row.player.x = row.start.x + (row.end.x - row.start.x) * t;
+          row.player.y = row.start.y + (row.end.y - row.start.y) * t;
+        });
         draw();
         if (t < 1) requestAnimationFrame(frame);
       }

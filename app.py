@@ -11,10 +11,11 @@ from streamlit.elements.lib.layout_utils import LayoutConfig
 
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
 from clubs_ui import render_club_badge, render_coach_club, render_join_club, render_leaderboard
-from coach_ui import render_situational_coach
+from coach_ui import render_positional_quiz, render_situational_coach
 from videos import render_videos
 from avatar_art import (
     PORTRAIT_BOOTS,
@@ -29,7 +30,6 @@ from avatar_art import (
     portrait_skin,
 )
 from constants import (
-    ACCOUNT_TYPES,
     AVATAR_BOOTS,
     AVATAR_GENDERS,
     AVATAR_HAIR,
@@ -40,17 +40,17 @@ from constants import (
 
 PLAYER_MENU = (
     "Situational Coach",
+    "Positional Quiz",
     "Videos",
     "Join club",
-    "Daily Challenge",
     "Leaderboard",
 )
 
 PLAYER_MENU_ICONS = {
     "Situational Coach": ":material/sports_soccer:",
+    "Positional Quiz": ":material/diamond:",
     "Videos": ":material/smart_display:",
     "Join club": ":material/groups:",
-    "Daily Challenge": ":material/electric_bolt:",
     "Leaderboard": ":material/leaderboard:",
     "Edit avatar": ":material/face:",
     "Log out": ":material/logout:",
@@ -93,6 +93,11 @@ PLAYER_SECTIONS = {
         "Coach the situation.",
         "Read what is happening, then pick the move that fits.",
     ),
+    "Positional Quiz": (
+        "SHAPE",
+        "Place the team.",
+        "A teammate has the ball. Drag the other six into a diamond that stays compact and covers the space.",
+    ),
     "Videos": (
         "WATCH",
         "See it, then try it.",
@@ -102,11 +107,6 @@ PLAYER_SECTIONS = {
         "SQUAD",
         "Find your club.",
         "Search the clubs a coach has created, then join.",
-    ),
-    "Daily Challenge": (
-        "TODAY",
-        "One charge for today.",
-        "A single task to power up your streak.",
     ),
     "Leaderboard": (
         "SQUAD",
@@ -270,7 +270,9 @@ def consume_handoff() -> None:
         st.session_state.auth_error = AUTH_ERRORS.get(
             error, "Sign-in did not complete. Try again."
         )
-    st.query_params.clear()
+    for key in ("auth_code", "auth_error"):
+        if key in st.query_params:
+            del st.query_params[key]
 
 
 def inject_theme() -> None:
@@ -353,8 +355,16 @@ def _sign_out() -> None:
         "coach_section_id",
         "coach_scenario_id",
         "coach_feedback",
+        "coach_feedback_n",
         "coach_nonce",
         "coach_handled",
+        "pos_screen",
+        "pos_section_id",
+        "pos_scenario_id",
+        "pos_feedback",
+        "pos_feedback_n",
+        "pos_nonce",
+        "pos_handled",
         "player_nav_pending",
         "club_search",
         "club_create_name",
@@ -367,8 +377,13 @@ def _sign_out() -> None:
         "coach_surge_open",
         "coach_surge_sound_played",
         "surge_bonus",
+        "surge_reason",
+        "phone_menu_close",
     ):
         st.session_state.pop(key, None)
+    st.session_state.pop("place_restored", None)
+    st.session_state.forget_saved_session = True
+    _clear_place_url()
     st.rerun()
 
 
@@ -454,6 +469,38 @@ def _prepare_player_nav() -> None:
         st.session_state.player_nav_seen = PLAYER_MENU[0]
 
 
+_PHONE_MENU_CLOSE = """
+<script>
+const parentDoc = window.parent.document;
+const closeNow = __CLOSE__;
+const closeMenu = () => {
+  const open = parentDoc.querySelector('[aria-haspopup="true"][aria-expanded="true"]');
+  if (!open) return false;
+  const view = parentDoc.defaultView;
+  const down = new view.MouseEvent("mousedown", {bubbles: true, cancelable: true, view: view});
+  const click = new view.MouseEvent("click", {bubbles: true, cancelable: true, view: view});
+  parentDoc.body.dispatchEvent(down);
+  parentDoc.body.dispatchEvent(click);
+  return !parentDoc.querySelector('[aria-haspopup="true"][aria-expanded="true"]');
+};
+if (closeNow) {
+  let tries = 0;
+  const timer = window.setInterval(() => {
+    tries += 1;
+    if (closeMenu() || tries > 30) window.clearInterval(timer);
+  }, 40);
+}
+</script>
+"""
+
+
+def _close_phone_menu() -> None:
+    if not st.session_state.pop("phone_menu_close", False):
+        return
+    with st.container(key="volt_phone_menu_close"):
+        components.html(_PHONE_MENU_CLOSE.replace("__CLOSE__", "true"), height=0)
+
+
 def _player_menu_radio(*, phone: bool = False) -> str:
     options = PHONE_MENU if phone else PLAYER_MENU
     choice = st.radio(
@@ -464,6 +511,10 @@ def _player_menu_radio(*, phone: bool = False) -> str:
         key="player_nav",
         width="stretch",
     )
+    if phone:
+        previous = st.session_state.get("player_nav_seen")
+        if previous is not None and choice != previous:
+            st.session_state.phone_menu_close = True
     if choice == "Log out":
         _sign_out()
     if choice == "Edit avatar":
@@ -483,6 +534,8 @@ def _render_player_content(user: dict, choice: str) -> None:
         render_avatar(user, first_time=False)
     elif choice == "Situational Coach":
         render_situational_coach(user)
+    elif choice == "Positional Quiz":
+        render_positional_quiz(user)
     elif choice == "Videos":
         render_videos()
     elif choice == "Join club":
@@ -511,6 +564,8 @@ def _phone_bar(user: dict, play_menu: bool) -> str:
                 choice = _player_menu_radio(phone=True)
             elif st.button("Log out", width="stretch", key="phone_log_out"):
                 _sign_out()
+    if play_menu:
+        _close_phone_menu()
     return choice
 
 
@@ -524,6 +579,7 @@ def render_player(user: dict) -> None:
             unsafe_allow_html=True,
         )
         _render_player_content(user, choice)
+        _remember_place(choice)
         return
     nav, stage = st.columns([1.2, 3.05], gap="medium")
     with nav:
@@ -549,6 +605,7 @@ def render_player(user: dict) -> None:
             render_avatar_menu(user)
         render_club_badge()
         _render_player_content(user, choice)
+        _remember_place(choice)
 
 
 def render_sidebar(user: dict) -> None:
@@ -757,19 +814,10 @@ def show_auth_error() -> None:
         st.session_state.auth_error_ready = True
 
 
-def google_section() -> None:
-    providers = st.session_state.providers or {}
-    if providers.get("api_down"):
-        return
-    st.divider()
-    if providers.get("google"):
-        st.link_button("Continue with Google", f"{API_URL}/auth/google/start")
-    else:
-        st.button("Continue with Google", disabled=True)
-        st.caption(
-            "Google sign-in needs GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env, "
-            "then a restart of the API."
-        )
+def code_button_label() -> str:
+    if (st.session_state.providers or {}).get("email_delivery"):
+        return "Email me a code"
+    return "Show me a code"
 
 
 def render_register() -> None:
@@ -777,27 +825,19 @@ def render_register() -> None:
     st.caption("We store your first name, email, account type, and a user ID.")
     first_name = st.text_input("First name", key="register_first_name")
     email = st.text_input("Email", key="register_email")
-    account_type = st.selectbox(
-        "Account type",
-        options=list(ACCOUNT_TYPES),
-        format_func=lambda key: ACCOUNT_TYPES[key],
-        index=None,
-        placeholder="Choose Coach / Admin or Player",
-        key="register_account_type",
-    )
+    # Coach / Admin registration is hidden for now. New accounts are players.
+    account_type = "player"
     password = st.text_input("Password", type="password", key="register_password")
     confirm_password = st.text_input(
         "Confirm password", type="password", key="register_password_confirm"
     )
-    if st.button("Create account", type="primary"):
+    st.caption("A 6-digit code verifies this email. After that, you log in with your password.")
+    if st.button(code_button_label(), type="primary"):
         if not first_name.strip():
             st.warning("Enter your first name.")
             return
         if not email.strip():
             st.warning("Enter your email.")
-            return
-        if not account_type:
-            st.warning("Choose an account type.")
             return
         if len(password) < 8:
             st.warning("Use a password of at least 8 characters.")
@@ -806,12 +846,13 @@ def render_register() -> None:
             st.warning("Those passwords do not match.")
             return
         try:
-            with st.spinner("Creating your account"):
+            with st.spinner("Sending code"):
                 data = api_request(
                     "POST",
-                    "/auth/register",
+                    "/auth/email/request",
                     {
                         "email": email.strip(),
+                        "purpose": "register",
                         "first_name": first_name.strip(),
                         "account_type": account_type,
                         "password": password,
@@ -820,9 +861,14 @@ def render_register() -> None:
         except ApiError as exc:
             st.error(exc.message)
             return
-        apply_session(data)
+        st.session_state.pending_email = {
+            "email": email.strip().lower(),
+            "purpose": "register",
+            "first_name": first_name.strip(),
+            "account_type": account_type,
+            "dev_code": data.get("dev_code"),
+        }
         st.rerun()
-    google_section()
 
 
 def render_login() -> None:
@@ -848,7 +894,54 @@ def render_login() -> None:
             return
         apply_session(data)
         st.rerun()
-    google_section()
+
+
+def render_code() -> None:
+    pending = st.session_state.pending_email
+    st.subheader("Confirm your email")
+    st.write(f"Use the 6-digit code for **{pending['email']}**.")
+    if pending.get("dev_code"):
+        st.warning("No email was sent. Email delivery is not set up on this machine.")
+        code = escape(str(pending["dev_code"]))
+        st.markdown(
+            f'<div class="volt-charge"><strong>{code}</strong><span class="volt-sparks">✦ ✦ ✦</span></div>',
+            unsafe_allow_html=True,
+        )
+    with st.form("email-code"):
+        code = st.text_input("6-digit code", max_chars=6)
+        submitted = st.form_submit_button("Confirm", type="primary")
+    if submitted:
+        try:
+            with st.spinner("Checking code"):
+                data = api_request(
+                    "POST",
+                    "/auth/email/verify",
+                    {"email": pending["email"], "code": code},
+                )
+        except ApiError as exc:
+            st.error(exc.message)
+        else:
+            apply_session(data)
+            st.rerun()
+    col_resend, col_back = st.columns(2)
+    if col_resend.button("Send a new code"):
+        payload = {
+            "email": pending["email"],
+            "purpose": pending["purpose"],
+            "first_name": pending["first_name"],
+            "account_type": pending["account_type"],
+        }
+        try:
+            data = api_request("POST", "/auth/email/request", payload)
+        except ApiError as exc:
+            st.error(exc.message)
+        else:
+            pending["dev_code"] = data.get("dev_code")
+            st.session_state.pending_email = pending
+            st.success("A new code is on the way.")
+    if col_back.button("Back"):
+        st.session_state.pending_email = None
+        st.rerun()
 
 
 def render_google_finish() -> None:
@@ -859,22 +952,10 @@ def render_google_finish() -> None:
     if "finish_first_name" not in st.session_state:
         st.session_state.finish_first_name = pending.get("suggested_first_name") or ""
     st.text_input("First name", key="finish_first_name")
-    st.selectbox(
-        "Account type",
-        options=list(ACCOUNT_TYPES),
-        format_func=lambda key: ACCOUNT_TYPES[key],
-        index=None,
-        placeholder="Choose Coach / Admin or Player",
-        key="finish_account_type",
-    )
     if st.button("Create account", type="primary"):
         first_name = (st.session_state.get("finish_first_name") or "").strip()
-        account_type = st.session_state.get("finish_account_type")
         if not first_name:
             st.warning("Enter your first name.")
-            return
-        if not account_type:
-            st.warning("Choose an account type.")
             return
         try:
             with st.spinner("Creating your account"):
@@ -884,7 +965,7 @@ def render_google_finish() -> None:
                     {
                         "pending_token": pending["pending_token"],
                         "first_name": first_name,
-                        "account_type": account_type,
+                        "account_type": "player",
                     },
                 )
         except ApiError as exc:
@@ -900,12 +981,15 @@ def render_google_finish() -> None:
 
 
 def render_auth() -> None:
-    volt_header("Football Club", "Register or log in with your email, or with Google.")
+    volt_header("Football Club", "Register or log in with your email.")
     if (st.session_state.providers or {}).get("api_down"):
         st.error("Could not reach the API. Start it with `uvicorn api:app --reload`.")
     show_auth_error()
     if st.session_state.google_pending:
         render_google_finish()
+        return
+    if st.session_state.pending_email:
+        render_code()
         return
     mode = st.radio("Account", ["Register", "Log in"], horizontal=True)
     if mode == "Register":
@@ -994,6 +1078,96 @@ def _apply_bridge(mode: str, grant: str = "") -> None:
         st.rerun()
 
 
+def _clear_place_url() -> None:
+    for key in ("page", "view", "drill"):
+        if key in st.query_params:
+            del st.query_params[key]
+
+
+def _restore_place() -> None:
+    if st.session_state.get("place_restored"):
+        return
+    st.session_state.place_restored = True
+    page = st.query_params.get("page") or ""
+    view = st.query_params.get("view") or ""
+    drill = st.query_params.get("drill") or ""
+    if page in PLAYER_MENU or page == "Edit avatar":
+        st.session_state.player_nav_pending = page
+    if view == "avatar" or page == "Edit avatar":
+        st.session_state.screen = "avatar"
+    if page == "Situational Coach" and str(drill).isdigit():
+        st.session_state.coach_scenario_id = int(drill)
+        st.session_state.coach_screen = "play"
+    if page == "Positional Quiz" and str(drill).isdigit():
+        st.session_state.pos_scenario_id = int(drill)
+        st.session_state.pos_screen = "play"
+
+
+def _remember_place(choice: str) -> None:
+    page = choice if choice in PLAYER_MENU or choice == "Edit avatar" else PLAYER_MENU[0]
+    view = "avatar" if st.session_state.screen == "avatar" or choice == "Edit avatar" else ""
+    drill = ""
+    if page == "Situational Coach" and view != "avatar":
+        scenario_id = st.session_state.get("coach_scenario_id")
+        if st.session_state.get("coach_screen") == "play" and scenario_id:
+            drill = str(int(scenario_id))
+    elif page == "Positional Quiz" and view != "avatar":
+        scenario_id = st.session_state.get("pos_scenario_id")
+        if st.session_state.get("pos_screen") == "play" and scenario_id:
+            drill = str(int(scenario_id))
+    current = (
+        st.query_params.get("page") or "",
+        st.query_params.get("view") or "",
+        st.query_params.get("drill") or "",
+    )
+    if current == (page, view, drill):
+        return
+    st.query_params["page"] = page
+    if view:
+        st.query_params["view"] = view
+    elif "view" in st.query_params:
+        del st.query_params["view"]
+    if drill:
+        st.query_params["drill"] = drill
+    elif "drill" in st.query_params:
+        del st.query_params["drill"]
+
+
+def _recall_session() -> None:
+    from session_keep import session_keep
+
+    clearing = bool(st.session_state.get("signing_out") or st.session_state.get("forget_saved_session"))
+    value = session_keep(
+        token="" if clearing else (st.session_state.token or ""),
+        clear=clearing,
+        key="volt_session_keep",
+    )
+    if st.session_state.get("forget_saved_session"):
+        if isinstance(value, dict) and not value.get("token"):
+            st.session_state.forget_saved_session = False
+        return
+    if st.session_state.token or st.session_state.get("signing_out"):
+        return
+    if not isinstance(value, dict) or "token" not in value:
+        st.markdown(
+            '<p class="volt-kicker">VOLT PITCH</p><h1>Getting you back on the pitch.</h1>',
+            unsafe_allow_html=True,
+        )
+        st.stop()
+    saved = str(value.get("token") or "")
+    if not saved:
+        return
+    try:
+        user = api_request("GET", "/auth/me", token=saved)
+    except ApiError:
+        st.session_state.forget_saved_session = True
+        st.rerun()
+    st.session_state.token = saved
+    st.session_state.user = user
+    st.session_state.skip_restore = True
+    st.rerun()
+
+
 def _restore_screen() -> None:
     st.markdown(
         '<p class="volt-kicker">VOLT PITCH</p><h1>Getting you back on the pitch.</h1>',
@@ -1029,6 +1203,8 @@ def main() -> None:
     inject_theme()
     init_state()
     mark_phone()
+    _restore_place()
+    _recall_session()
     if st.session_state.get("signing_out"):
         _logout_screen()
     providers = st.session_state.providers

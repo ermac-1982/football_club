@@ -30,6 +30,8 @@ from auth_service import (
     login_with_password,
     refresh_persistent_login,
     register_account,
+    request_email_code,
+    verify_email_code,
     revoke_refresh_token,
     user_from_session,
 )
@@ -45,6 +47,7 @@ from club_service import (
     update_club,
 )
 from coach_service import CoachError, answer_scenario, path_for, scenario_for
+from position_service import PositionError, answer_scenario as answer_position, path_for as position_path, scenario_for as position_scenario
 from video_service import VideoError, record_watch, watched_ids
 from constants import ACCOUNT_TYPES
 from db import engine, get_db, init_db
@@ -67,6 +70,29 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+class EmailCodeRequest(BaseModel):
+    email: EmailStr
+    purpose: Literal["register"]
+    first_name: Optional[str] = None
+    account_type: Optional[Literal["coach_admin", "player"]] = None
+    password: Optional[str] = None
+
+    @field_validator("email")
+    @classmethod
+    def lowercase_email(cls, value: str) -> str:
+        return value.strip().lower()
+
+
+class EmailCodeVerify(BaseModel):
+    email: EmailStr
+    code: str
+
+    @field_validator("email")
+    @classmethod
+    def lowercase_email(cls, value: str) -> str:
+        return value.strip().lower()
 
 
 class RegisterRequest(BaseModel):
@@ -162,6 +188,7 @@ def providers() -> dict[str, bool]:
     return {
         "google": settings.google_enabled(),
         "email": True,
+        "email_delivery": settings.email_delivery_configured(),
     }
 
 
@@ -197,6 +224,36 @@ def _clear_refresh_cookie(response: Response) -> None:
 
 class CookieGrant(BaseModel):
     grant: str
+
+
+@app.post("/auth/email/request")
+def email_request(body: EmailCodeRequest, db: Session = Depends(get_db)) -> dict:
+    try:
+        dev_code = request_email_code(
+            db,
+            body.email,
+            body.purpose,
+            body.first_name,
+            body.account_type,
+            body.password,
+        )
+    except AuthError as exc:
+        raise _auth_http(exc) from exc
+    if dev_code:
+        return {
+            "message": "Email delivery is not configured, so use the code shown in the app.",
+            "dev_code": dev_code,
+        }
+    return {"message": f"We sent a 6-digit code to {body.email}."}
+
+
+@app.post("/auth/email/verify")
+def email_verify(body: EmailCodeVerify, db: Session = Depends(get_db)) -> dict:
+    try:
+        user = verify_email_code(db, body.email, body.code)
+    except AuthError as exc:
+        raise _auth_http(exc) from exc
+    return persistent_session(db, user)
 
 
 @app.post("/auth/register")
@@ -445,7 +502,21 @@ class CoachAnswerBody(BaseModel):
     targetPlayerId: Optional[str] = None
 
 
+class PositionPlacement(BaseModel):
+    id: str
+    x: float
+    y: float
+
+
+class PositionAnswerBody(BaseModel):
+    placements: list[PositionPlacement]
+
+
 def _coach_http(exc: CoachError) -> HTTPException:
+    return HTTPException(status_code=exc.status_code, detail=exc.detail)
+
+
+def _position_http(exc: PositionError) -> HTTPException:
     return HTTPException(status_code=exc.status_code, detail=exc.detail)
 
 
@@ -477,3 +548,33 @@ def coach_answer(
         return answer_scenario(db, user, scenario_id, body.model_dump(exclude_none=True))
     except CoachError as exc:
         raise _coach_http(exc) from exc
+
+
+@app.get("/position/path")
+def position_quiz_path(user=Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    return position_path(db, user)
+
+
+@app.get("/position/scenarios/{scenario_id}")
+def position_quiz_scenario(
+    scenario_id: int,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    try:
+        return position_scenario(db, user, scenario_id)
+    except PositionError as exc:
+        raise _position_http(exc) from exc
+
+
+@app.post("/position/scenarios/{scenario_id}/answer")
+def position_quiz_answer(
+    scenario_id: int,
+    body: PositionAnswerBody,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    try:
+        return answer_position(db, user, scenario_id, body.model_dump())
+    except PositionError as exc:
+        raise _position_http(exc) from exc
