@@ -94,6 +94,8 @@ class RefreshTokenTest(unittest.TestCase):
         body = registered.json()
         user_id = uuid.UUID(body["user"]["id"])
         self.user_ids.append(user_id)
+        self.db.expire_all()
+        self.assertIsNotNone(self.db.get(User, user_id).last_login_at)
         self.assertIn("cookie_grant", body)
         self.assertNotIn("refresh", body)
         planted = self.client.post("/auth/cookie", json={"grant": body["cookie_grant"]})

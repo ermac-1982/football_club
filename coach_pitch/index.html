@@ -55,8 +55,9 @@
       const maxPitch = Math.max(300, Math.min(560, room - 280));
       svg.style.maxHeight = maxPitch + "px";
       requestAnimationFrame(() => {
-        const height = Math.ceil(document.body.scrollHeight) + 8;
-        if (Math.abs(height - frameHeight) < 3) return;
+        const wrap = document.querySelector(".wrap");
+        const height = Math.ceil((wrap ? wrap.getBoundingClientRect().height : 0) + 12);
+        if (height < 24 || Math.abs(height - frameHeight) < 4) return;
         frameHeight = height;
         send("streamlit:setFrameHeight", { height: height });
       });
@@ -335,12 +336,22 @@
       requestAnimationFrame(frame);
     }
 
-    window.addEventListener("resize", fitFrame);
+    let resizeTimer = 0;
+    window.addEventListener("resize", () => {
+      window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(fitFrame, 150);
+    });
     window.addEventListener("message", (event) => {
       if (!event.data || event.data.type !== "streamlit:render") return;
       const next = event.data.args && event.data.args.spec;
       if (!next) return;
-      if (!spec || spec.id !== next.id || spec.mode !== next.mode) copySpec(next);
+      try {
+        if (!spec || spec.id !== next.id || spec.mode !== next.mode) copySpec(next);
+        else fitFrame();
+      } catch (error) {
+        hint.textContent = "This drill could not be drawn. Go back and open it again.";
+        fitFrame();
+      }
     });
     ready();
   </script>

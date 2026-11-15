@@ -60,6 +60,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(320), nullable=False, unique=True)
     password_hash: Mapped[Optional[str]] = mapped_column(String(255))
     account_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
 
     identities: Mapped[list["Identity"]] = relationship(back_populates="user", cascade="all, delete-orphan")
@@ -277,7 +278,7 @@ class Handoff(Base):
 
 
 REQUIRED_COLUMNS = {
-    "users": {"id", "first_name", "email", "password_hash", "account_type", "created_at"},
+    "users": {"id", "first_name", "email", "password_hash", "account_type", "last_login_at", "created_at"},
     "auth_identities": {"id", "user_id", "provider", "provider_user_id", "created_at"},
     "email_login_codes": {
         "id",
@@ -313,7 +314,7 @@ REQUIRED_COLUMNS = {
 }
 
 COLUMN_ADDITIONS = {
-    "users": {"password_hash": "VARCHAR(255)"},
+    "users": {"password_hash": "VARCHAR(255)", "last_login_at": "TIMESTAMPTZ"},
     "email_login_codes": {"password_hash": "VARCHAR(255)"},
     "player_avatars": {
         "hair_style": "VARCHAR(32) NOT NULL DEFAULT 'curly'",

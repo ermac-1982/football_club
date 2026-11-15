@@ -14,7 +14,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
-from clubs_ui import render_club_badge, render_coach_club, render_join_club, render_leaderboard
+from clubs_ui import render_club_badge, render_coach_club, render_coach_home, render_join_club, render_leaderboard
 from coach_ui import render_positional_quiz, render_situational_coach
 from videos import render_videos
 from avatar_art import (
@@ -57,6 +57,22 @@ PLAYER_MENU_ICONS = {
 }
 
 PHONE_MENU = PLAYER_MENU + ("Edit avatar", "Log out")
+
+COACH_MENU = (
+    "Home",
+    "Leaderboard",
+    "Club",
+    "Log out",
+)
+
+COACH_MENU_ICONS = {
+    "Home": ":material/home:",
+    "Leaderboard": ":material/leaderboard:",
+    "Club": ":material/shield:",
+    "Log out": ":material/logout:",
+}
+
+COACH_PHONE_MENU = COACH_MENU
 
 _PHONE_UA = re.compile(
     r"Android|iPhone|iPad|iPod|Mobile|IEMobile|Opera Mini|BlackBerry|webOS",
@@ -190,6 +206,7 @@ def api_request(method: str, path: str, payload: Optional[dict] = None, token: O
         st.session_state.token = None
         st.session_state.user = None
         st.session_state.skip_restore = False
+        st.session_state.forget_saved_session = True
         st.rerun()
     if response.status_code >= 400:
         raise ApiError(error_message(response))
@@ -307,32 +324,6 @@ def _portrait(avatar: Optional[dict]) -> str:
     return str(portrait_path(str(gender), str(skin), str(hair), str(color), str(boots)))
 
 
-def player_card(user: dict) -> None:
-    avatar = user.get("avatar") or {}
-    nickname = avatar.get("nickname") or user["first_name"]
-    name = escape(nickname)
-    role = escape(user["account_type_label"])
-    email = escape(user["email"])
-    picture, details = st.columns([1, 1.35])
-    with picture:
-        if avatar:
-            st.image(_portrait(avatar), use_container_width=True)
-    with details:
-        st.markdown(
-            f"""
-            <div class="volt-card volt-player">
-              <div>
-                <p class="volt-kicker">ON THE PITCH</p>
-                <h2>Welcome, {name}</h2>
-                <span class="volt-badge">{role}</span>
-                <p class="volt-mail">{email}</p>
-              </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-
 def _choice_id(avatar: Optional[dict], name: str, fallback: str) -> str:
     part = (avatar or {}).get(name) or {}
     if isinstance(part, dict) and part.get("id"):
@@ -366,6 +357,10 @@ def _sign_out() -> None:
         "pos_nonce",
         "pos_handled",
         "player_nav_pending",
+        "coach_nav",
+        "coach_nav_seen",
+        "coach_nav_pending",
+        "coach_remove_id",
         "club_search",
         "club_create_name",
         "club_create_primary",
@@ -546,8 +541,84 @@ def _render_player_content(user: dict, choice: str) -> None:
         render_player_section(choice)
 
 
-def _phone_bar(user: dict, play_menu: bool) -> str:
-    if play_menu:
+def _prepare_coach_nav() -> None:
+    allowed = COACH_PHONE_MENU if viewing_on_phone() else COACH_MENU
+    pending = st.session_state.pop("coach_nav_pending", None)
+    if pending in allowed and pending != "Log out":
+        st.session_state.coach_nav = pending
+        st.session_state.coach_nav_seen = pending
+    if st.session_state.get("coach_nav") == "Log out":
+        _sign_out()
+    if st.session_state.get("coach_nav") not in allowed:
+        st.session_state.coach_nav = COACH_MENU[0]
+        st.session_state.coach_nav_seen = COACH_MENU[0]
+
+
+def _coach_menu_radio(*, phone: bool = False) -> str:
+    options = COACH_PHONE_MENU if phone else COACH_MENU
+    choice = st.radio(
+        "Menu",
+        options,
+        format_func=lambda name: f"{COACH_MENU_ICONS[name]} {name}",
+        label_visibility="collapsed",
+        key="coach_nav",
+        width="stretch",
+    )
+    if phone:
+        previous = st.session_state.get("coach_nav_seen")
+        if previous is not None and choice != previous:
+            st.session_state.phone_menu_close = True
+    if choice == "Log out":
+        _sign_out()
+    st.session_state.coach_nav_seen = choice
+    return choice
+
+
+def _render_coach_content(user: dict, choice: str) -> None:
+    if choice == "Leaderboard":
+        render_leaderboard(user)
+    elif choice == "Club":
+        render_coach_club(user)
+    else:
+        render_coach_home(user)
+
+
+def render_coach(user: dict) -> None:
+    st.markdown('<div class="volt-hub"></div>', unsafe_allow_html=True)
+    if viewing_on_phone():
+        choice = _phone_bar(user, coach=True)
+        st.markdown(
+            f'<p class="volt-sub volt-phone-section">{escape(choice)}</p>',
+            unsafe_allow_html=True,
+        )
+        _render_coach_content(user, choice)
+        _remember_place(choice, COACH_MENU)
+        return
+    nav, stage = st.columns([1.2, 3.05], gap="medium")
+    with nav:
+        st.markdown('<div class="volt-nav"></div>', unsafe_allow_html=True)
+        st.markdown('<p class="volt-kicker">VOLT PITCH</p>', unsafe_allow_html=True)
+        st.markdown('<p class="volt-nav-label">Coach</p>', unsafe_allow_html=True)
+        _prepare_coach_nav()
+        choice = _coach_menu_radio()
+    with stage:
+        st.markdown(
+            f"""
+            <p class="volt-kicker">COACH</p>
+            <h1 class="volt-player-name">{escape(user["first_name"])}</h1>
+            <p class="volt-sub">{escape(choice)}</p>
+            """,
+            unsafe_allow_html=True,
+        )
+        render_club_badge()
+        _render_coach_content(user, choice)
+        _remember_place(choice, COACH_MENU)
+
+
+def _phone_bar(user: dict, play_menu: bool = False, coach: bool = False) -> str:
+    if coach:
+        _prepare_coach_nav()
+    elif play_menu:
         _prepare_player_nav()
     brand, trigger = st.columns([1.45, 1], vertical_alignment="center")
     with brand:
@@ -555,16 +626,23 @@ def _phone_bar(user: dict, play_menu: bool) -> str:
             '<div class="volt-phone-bar"></div><p class="volt-kicker volt-phone-brand">VOLT PITCH</p>',
             unsafe_allow_html=True,
         )
-    choice = st.session_state.get("player_nav", PLAYER_MENU[0]) if play_menu else ""
+    if coach:
+        choice = st.session_state.get("coach_nav", COACH_MENU[0])
+    elif play_menu:
+        choice = st.session_state.get("player_nav", PLAYER_MENU[0])
+    else:
+        choice = ""
     with trigger:
         with st.popover("Menu", icon=":material/menu:", width="stretch"):
             st.markdown('<div class="volt-phone-sheet"></div>', unsafe_allow_html=True)
             render_club_badge()
-            if play_menu:
+            if coach:
+                choice = _coach_menu_radio(phone=True)
+            elif play_menu:
                 choice = _player_menu_radio(phone=True)
             elif st.button("Log out", width="stretch", key="phone_log_out"):
                 _sign_out()
-    if play_menu:
+    if play_menu or coach:
         _close_phone_menu()
     return choice
 
@@ -606,23 +684,6 @@ def render_player(user: dict) -> None:
         render_club_badge()
         _render_player_content(user, choice)
         _remember_place(choice)
-
-
-def render_sidebar(user: dict) -> None:
-    avatar = user.get("avatar")
-    labels = ["Home"]
-    if user.get("account_type") == "player" and avatar:
-        labels.append("My avatar")
-    current = "My avatar" if st.session_state.screen == "avatar" and "My avatar" in labels else "Home"
-    with st.sidebar:
-        st.markdown('<p class="volt-kicker">VOLT PITCH</p>', unsafe_allow_html=True)
-        picked = st.radio("Menu", labels, index=labels.index(current), key="nav_menu")
-        if picked != current:
-            st.session_state.screen = "avatar" if picked == "My avatar" else "home"
-            st.rerun()
-        st.caption(avatar.get("nickname") if avatar and avatar.get("nickname") else user["first_name"])
-        if st.button("Log out", use_container_width=True):
-            _sign_out()
 
 
 def _clear_avatar_fields(user_id: str) -> None:
@@ -998,48 +1059,6 @@ def render_auth() -> None:
         render_login()
 
 
-def render_home(user: dict) -> None:
-    if viewing_on_phone():
-        _phone_bar(user, play_menu=False)
-        render_coach_club(user)
-        return
-    st.markdown('<div class="volt-with-nav"></div>', unsafe_allow_html=True)
-    render_sidebar(user)
-    volt_header("Football Club", "Build your club, then send players to the pitch.")
-    player_card(user)
-    render_coach_club(user)
-    if st.session_state.avatar_notice:
-        gender = ((user.get("avatar") or {}).get("gender") or {}).get("id", "M")
-        celebrate, _rest = st.columns([1, 1.4])
-        with celebrate:
-            st.image(str(celebration_path(str(gender))), use_container_width=True)
-        st.success(st.session_state.avatar_notice)
-        st.session_state.avatar_notice = None
-    if st.session_state.just_signed_in:
-        st.success(f"You are signed in. Your user ID is {user['id']}.")
-        st.session_state.just_signed_in = False
-    st.subheader(f"Welcome, {user['first_name']}")
-    st.write(f"**{user['account_type_label']}**")
-    st.write(user["email"])
-    st.caption("User ID")
-    st.code(user["id"], language=None)
-
-    if st.button("Say hello"):
-        try:
-            response = requests.get(f"{API_URL}/", timeout=30)
-            response.raise_for_status()
-            st.success(response.json().get("message", "Hello World"))
-        except requests.RequestException as exc:
-            st.error(
-                "Could not reach the FastAPI server. "
-                "Locally: `uvicorn api:app --reload`. On Render: wait for the API service to come up."
-            )
-            st.caption(str(exc))
-
-    if st.button("Log out"):
-        _sign_out()
-
-
 _AUTH_HANDLED = "auth_bridge_seen"
 
 
@@ -1084,37 +1103,35 @@ def _clear_place_url() -> None:
             del st.query_params[key]
 
 
+def _place_for(choice: str, screen: str, menu: tuple[str, ...] = PLAYER_MENU) -> tuple[str, str, str]:
+    """Page and view kept in the address bar. An open drill is not kept.
+
+    Next drill was written into the address bar while its play screen opened.
+    A refresh read that drill back and opened the same screen again, so a stuck
+    drill came back after a reload.
+    """
+    known = menu + (("Edit avatar",) if menu == PLAYER_MENU else ())
+    page = choice if choice in known else menu[0]
+    view = "avatar" if screen == "avatar" or choice == "Edit avatar" else ""
+    return page, view, ""
+
+
 def _restore_place() -> None:
     if st.session_state.get("place_restored"):
         return
     st.session_state.place_restored = True
     page = st.query_params.get("page") or ""
     view = st.query_params.get("view") or ""
-    drill = st.query_params.get("drill") or ""
     if page in PLAYER_MENU or page == "Edit avatar":
         st.session_state.player_nav_pending = page
+    if page in COACH_MENU:
+        st.session_state.coach_nav_pending = page
     if view == "avatar" or page == "Edit avatar":
         st.session_state.screen = "avatar"
-    if page == "Situational Coach" and str(drill).isdigit():
-        st.session_state.coach_scenario_id = int(drill)
-        st.session_state.coach_screen = "play"
-    if page == "Positional Quiz" and str(drill).isdigit():
-        st.session_state.pos_scenario_id = int(drill)
-        st.session_state.pos_screen = "play"
 
 
-def _remember_place(choice: str) -> None:
-    page = choice if choice in PLAYER_MENU or choice == "Edit avatar" else PLAYER_MENU[0]
-    view = "avatar" if st.session_state.screen == "avatar" or choice == "Edit avatar" else ""
-    drill = ""
-    if page == "Situational Coach" and view != "avatar":
-        scenario_id = st.session_state.get("coach_scenario_id")
-        if st.session_state.get("coach_screen") == "play" and scenario_id:
-            drill = str(int(scenario_id))
-    elif page == "Positional Quiz" and view != "avatar":
-        scenario_id = st.session_state.get("pos_scenario_id")
-        if st.session_state.get("pos_screen") == "play" and scenario_id:
-            drill = str(int(scenario_id))
+def _remember_place(choice: str, menu: tuple[str, ...] = PLAYER_MENU) -> None:
+    page, view, drill = _place_for(choice, st.session_state.screen, menu)
     current = (
         st.query_params.get("page") or "",
         st.query_params.get("view") or "",
@@ -1127,9 +1144,7 @@ def _remember_place(choice: str) -> None:
         st.query_params["view"] = view
     elif "view" in st.query_params:
         del st.query_params["view"]
-    if drill:
-        st.query_params["drill"] = drill
-    elif "drill" in st.query_params:
+    if "drill" in st.query_params:
         del st.query_params["drill"]
 
 
@@ -1149,10 +1164,15 @@ def _recall_session() -> None:
     if st.session_state.token or st.session_state.get("signing_out"):
         return
     if not isinstance(value, dict) or "token" not in value:
+        if st.session_state.get("skip_restore"):
+            return
         st.markdown(
             '<p class="volt-kicker">VOLT PITCH</p><h1>Getting you back on the pitch.</h1>',
             unsafe_allow_html=True,
         )
+        if st.button("Log in", type="primary"):
+            st.session_state.skip_restore = True
+            st.rerun()
         st.stop()
     saved = str(value.get("token") or "")
     if not saved:
@@ -1234,7 +1254,7 @@ def main() -> None:
     elif user and user.get("account_type") == "player":
         render_player(user)
     elif user:
-        render_home(user)
+        render_coach(user)
     else:
         render_auth()
 

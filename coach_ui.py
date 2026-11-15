@@ -215,6 +215,9 @@ def _render_section(path: dict) -> None:
 
 def _render_play() -> None:
     scenario_id = st.session_state.get(_track.scenario)
+    if not scenario_id:
+        _screen("path")
+        st.rerun()
     if st.button("Back", key=_track.button("play_back")):
         _screen("section")
         st.rerun()
@@ -308,6 +311,8 @@ def _render_feedback() -> None:
         nxt = result.get("nextScenarioId")
         label = "Next drill" if nxt else "Back to path"
         if st.button(label, type="primary", width="stretch", key=_track.button("next")):
+            st.session_state.coach_surge_open = False
+            st.session_state.coach_surge_sound_played = False
             if nxt:
                 st.session_state[_track.scenario] = nxt
                 st.session_state[_track.section] = _track.lookup(nxt)["section"]

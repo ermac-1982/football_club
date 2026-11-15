@@ -922,6 +922,60 @@ footer, [data-testid="stStatusWidget"] {
   box-shadow: 0 0 16px rgba(57, 255, 20, 0.32);
 }
 
+.volt-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.7rem;
+  margin: 0.2rem 0 1rem;
+}
+
+.volt-stat {
+  background: var(--volt-surface);
+  border: 1px solid var(--volt-border);
+  border-radius: 18px;
+  padding: 0.85rem 1rem 0.75rem;
+}
+
+.volt-stat strong {
+  display: block;
+  color: var(--volt-lime);
+  font-family: "Poppins", "Segoe UI", sans-serif;
+  font-size: 1.7rem;
+  line-height: 1.1;
+  text-shadow: 0 0 12px rgba(57, 255, 20, 0.45);
+}
+
+.volt-stat span {
+  color: var(--volt-muted);
+  font-size: 0.92rem;
+}
+
+.volt-roster {
+  margin: 0.45rem 0;
+  padding: 0.7rem 0.85rem;
+  border-radius: 18px;
+  background: var(--volt-surface);
+  border: 1px solid var(--volt-border);
+}
+
+.volt-roster strong {
+  font-family: "Poppins", "Segoe UI", sans-serif;
+  font-size: 1.05rem;
+}
+
+.volt-roster span {
+  float: right;
+  color: var(--volt-lime);
+  font-family: "Poppins", "Segoe UI", sans-serif;
+  font-weight: 800;
+}
+
+.volt-roster p {
+  clear: both;
+  margin: 0.25rem 0 0;
+  color: var(--volt-muted);
+}
+
 .volt-phone-brand {
   margin: 0;
   line-height: 1.1;

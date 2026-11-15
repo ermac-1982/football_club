@@ -43,7 +43,9 @@ from club_service import (
     join_club,
     leaderboard,
     leave_club,
+    remove_player,
     search_clubs,
+    squad_stats,
     update_club,
 )
 from coach_service import CoachError, answer_scenario, path_for, scenario_for
@@ -493,6 +495,27 @@ def get_my_leaderboard(user=Depends(get_current_user), db: Session = Depends(get
         return leaderboard(db, user)
     except ClubError as exc:
         raise _club_http(exc) from exc
+
+
+@app.get("/me/club/stats")
+def get_my_club_stats(user=Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    try:
+        return squad_stats(db, user)
+    except ClubError as exc:
+        raise _club_http(exc) from exc
+
+
+@app.delete("/clubs/mine/members/{player_id}")
+def delete_club_member(
+    player_id: uuid.UUID,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    try:
+        remove_player(db, user, player_id)
+    except ClubError as exc:
+        raise _club_http(exc) from exc
+    return {"ok": True}
 
 
 class CoachAnswerBody(BaseModel):

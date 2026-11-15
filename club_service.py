@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import re
 import uuid
+from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from avatar_service import public_avatar
 from coach_engine import total_score
 from constants import CLUB_COLOURS
-from db import Club, ClubMember, CoachAttempt, PositionAttempt, User, utcnow
+from db import Club, ClubMember, CoachAttempt, PositionAttempt, RefreshToken, User, VideoWatch, utcnow
 from position_engine import total_score as quiz_score
 from video_service import points_by_user
 
@@ -196,24 +198,84 @@ def leave_club(db: Session, user: User) -> None:
     db.expire(user, ["membership"])
 
 
-def _squad(db: Session, club: Club, viewer_id: uuid.UUID) -> dict:
-    members = (
+def _members(db: Session, club: Club) -> list[User]:
+    return (
         db.query(User)
         .options(joinedload(User.avatar))
         .join(ClubMember, ClubMember.user_id == User.id)
         .filter(ClubMember.club_id == club.id, User.account_type == "player")
         .all()
     )
-    by_user: dict[uuid.UUID, dict[int, list[int]]] = {member.id: {} for member in members}
-    quiz_by_user: dict[uuid.UUID, dict[int, list[int]]] = {member.id: {} for member in members}
-    if by_user:
-        attempts = db.query(CoachAttempt).filter(CoachAttempt.user_id.in_(list(by_user))).all()
-        for attempt in attempts:
-            by_user.setdefault(attempt.user_id, {}).setdefault(attempt.scenario_id, []).append(attempt.score)
-        quiz_rows = db.query(PositionAttempt).filter(PositionAttempt.user_id.in_(list(by_user))).all()
-        for attempt in quiz_rows:
-            quiz_by_user.setdefault(attempt.user_id, {}).setdefault(attempt.scenario_id, []).append(attempt.score)
-    clip_points = points_by_user(db, list(by_user))
+
+
+def _as_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
+def _attempt_maps(
+    db: Session, user_ids: list[uuid.UUID]
+) -> tuple[dict[uuid.UUID, dict[int, list[int]]], dict[uuid.UUID, dict[int, list[int]]], dict[uuid.UUID, int], dict[uuid.UUID, int]]:
+    coach: dict[uuid.UUID, dict[int, list[int]]] = {user_id: {} for user_id in user_ids}
+    quiz: dict[uuid.UUID, dict[int, list[int]]] = {user_id: {} for user_id in user_ids}
+    drills = {user_id: 0 for user_id in user_ids}
+    if not user_ids:
+        return coach, quiz, {}, drills
+    for attempt in db.query(CoachAttempt).filter(CoachAttempt.user_id.in_(user_ids)).all():
+        coach.setdefault(attempt.user_id, {}).setdefault(attempt.scenario_id, []).append(attempt.score)
+        drills[attempt.user_id] = drills.get(attempt.user_id, 0) + 1
+    for attempt in db.query(PositionAttempt).filter(PositionAttempt.user_id.in_(user_ids)).all():
+        quiz.setdefault(attempt.user_id, {}).setdefault(attempt.scenario_id, []).append(attempt.score)
+        drills[attempt.user_id] = drills.get(attempt.user_id, 0) + 1
+    return coach, quiz, points_by_user(db, user_ids), drills
+
+
+def _clip_counts(db: Session, user_ids: list[uuid.UUID]) -> dict[uuid.UUID, int]:
+    if not user_ids:
+        return {}
+    rows = (
+        db.query(VideoWatch.user_id, func.count(VideoWatch.id))
+        .filter(VideoWatch.user_id.in_(user_ids))
+        .group_by(VideoWatch.user_id)
+        .all()
+    )
+    return {user_id: int(total or 0) for user_id, total in rows}
+
+
+def _last_logins(db: Session, members: list[User]) -> dict[uuid.UUID, datetime | None]:
+    if not members:
+        return {}
+    user_ids = [member.id for member in members]
+    rows = (
+        db.query(RefreshToken.user_id, func.max(RefreshToken.created_at))
+        .filter(RefreshToken.user_id.in_(user_ids))
+        .group_by(RefreshToken.user_id)
+        .all()
+    )
+    remembered = {user_id: _as_utc(when) for user_id, when in rows}
+    found: dict[uuid.UUID, datetime | None] = {}
+    for member in members:
+        times = [item for item in (_as_utc(member.last_login_at), remembered.get(member.id)) if item is not None]
+        found[member.id] = max(times) if times else None
+    return found
+
+
+def _points(
+    coach: dict[int, list[int]],
+    quiz: dict[int, list[int]],
+    clips: dict[uuid.UUID, int],
+    user_id: uuid.UUID,
+) -> int:
+    return total_score(coach) + quiz_score(quiz) + clips.get(user_id, 0)
+
+
+def _squad(db: Session, club: Club, viewer_id: uuid.UUID) -> dict:
+    members = _members(db, club)
+    user_ids = [member.id for member in members]
+    coach, quiz, clip_points, _drills = _attempt_maps(db, user_ids)
     entries = []
     for member in members:
         avatar = public_avatar(member.avatar)
@@ -221,14 +283,74 @@ def _squad(db: Session, club: Club, viewer_id: uuid.UUID) -> dict:
             {
                 "user_id": str(member.id),
                 "name": (avatar or {}).get("nickname") or member.first_name,
-                "score": total_score(by_user.get(member.id) or {})
-                + quiz_score(quiz_by_user.get(member.id) or {})
-                + clip_points.get(member.id, 0),
+                "score": _points(coach.get(member.id) or {}, quiz.get(member.id) or {}, clip_points, member.id),
                 "avatar": avatar,
                 "you": member.id == viewer_id,
             }
         )
     return {"club": _as_public(db, club), "ranks": ordered_ranks(entries)}
+
+
+def squad_stats(db: Session, user: User) -> dict:
+    if user.account_type != "coach_admin":
+        raise ClubError(403, "Only a coach can see squad stats.")
+    club = user.owned_club
+    if club is None:
+        return {
+            "club": None,
+            "players": 0,
+            "points": 0,
+            "drills": 0,
+            "clips": 0,
+            "active_week": 0,
+            "roster": [],
+        }
+    members = _members(db, club)
+    user_ids = [member.id for member in members]
+    coach, quiz, clip_points, drills = _attempt_maps(db, user_ids)
+    clips = _clip_counts(db, user_ids)
+    logins = _last_logins(db, members)
+    week_ago = utcnow() - timedelta(days=7)
+    roster = []
+    active_week = 0
+    for member in members:
+        avatar = public_avatar(member.avatar)
+        when = logins.get(member.id)
+        if when is not None and when >= week_ago:
+            active_week += 1
+        roster.append(
+            {
+                "user_id": str(member.id),
+                "name": (avatar or {}).get("nickname") or member.first_name,
+                "points": _points(coach.get(member.id) or {}, quiz.get(member.id) or {}, clip_points, member.id),
+                "last_login": when.isoformat() if when else None,
+                "drills": drills.get(member.id, 0),
+                "clips": clips.get(member.id, 0),
+            }
+        )
+    roster.sort(key=lambda row: (-int(row["points"]), row["name"].casefold()))
+    return {
+        "club": _as_public(db, club),
+        "players": len(roster),
+        "points": sum(int(row["points"]) for row in roster),
+        "drills": sum(int(row["drills"]) for row in roster),
+        "clips": sum(int(row["clips"]) for row in roster),
+        "active_week": active_week,
+        "roster": roster,
+    }
+
+
+def remove_player(db: Session, user: User, player_id: uuid.UUID) -> None:
+    if user.account_type != "coach_admin":
+        raise ClubError(403, "Only a coach can remove a player.")
+    club = user.owned_club
+    if club is None:
+        raise ClubError(404, "Create a club first.")
+    member = db.get(ClubMember, player_id)
+    if member is None or member.club_id != club.id:
+        raise ClubError(404, "That player is not on your team.")
+    db.delete(member)
+    db.commit()
 
 
 def leaderboard(db: Session, user: User) -> dict:

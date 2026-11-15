@@ -150,7 +150,19 @@ def session_payload(user: User, *, cookie_grant: str | None = None) -> dict:
     return payload
 
 
+def mark_login(db: Session, user: User, *, min_gap: timedelta | None = None) -> None:
+    now = utcnow()
+    previous = user.last_login_at
+    if previous is not None and previous.tzinfo is None:
+        previous = previous.replace(tzinfo=timezone.utc)
+    if min_gap is not None and previous is not None and now - previous < min_gap:
+        return
+    user.last_login_at = now
+    db.commit()
+
+
 def persistent_session(db: Session, user: User) -> dict:
+    mark_login(db, user)
     grant = _create_handoff(db, "cookie_grant", {"user_id": str(user.id)})
     return session_payload(user, cookie_grant=grant)
 
@@ -179,6 +191,7 @@ def user_from_session(db: Session, token: str) -> User:
     user = db.get(User, user_id)
     if user is None:
         raise AuthError(401, "Sign in required.")
+    mark_login(db, user, min_gap=timedelta(minutes=15))
     return user
 
 
@@ -724,6 +737,7 @@ def rotate_refresh_token(db: Session, raw: str) -> tuple[User, str]:
 
 def refresh_persistent_login(db: Session, raw: str) -> tuple[str, str]:
     user, new_raw = rotate_refresh_token(db, raw)
+    mark_login(db, user)
     code = _create_handoff(db, "session", {"user_id": str(user.id), "remembered": True})
     return code, new_raw
 

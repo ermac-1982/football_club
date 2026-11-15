@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from html import escape
 from urllib.parse import quote
 
@@ -67,25 +68,45 @@ def _portrait(avatar: dict | None) -> str:
     return f'<img src="{escape(url)}" alt="">'
 
 
+def _rank_html(row: dict) -> str:
+    rank = int(row["rank"])
+    classes = "volt-rank"
+    if rank <= 3:
+        classes += f" volt-rank-{rank}"
+    if row.get("you"):
+        classes += " volt-rank-you"
+    you = '<span class="volt-badge">You</span>' if row.get("you") else ""
+    return (
+        f'<div class="{classes}">'
+        f'<span class="volt-rank-num">{rank}</span>'
+        f'{_portrait(row.get("avatar"))}'
+        f'<div class="volt-rank-name"><strong>{escape(str(row["name"]))}</strong>{you}</div>'
+        f'<span class="volt-rank-score">{int(row["score"]):,}</span>'
+        "</div>"
+    )
+
+
 def _ranks_html(ranks: list[dict]) -> str:
-    parts = []
-    for row in ranks:
-        rank = int(row["rank"])
-        classes = "volt-rank"
-        if rank <= 3:
-            classes += f" volt-rank-{rank}"
-        if row.get("you"):
-            classes += " volt-rank-you"
-        you = '<span class="volt-badge">You</span>' if row.get("you") else ""
-        parts.append(
-            f'<div class="{classes}">'
-            f'<span class="volt-rank-num">{rank}</span>'
-            f'{_portrait(row.get("avatar"))}'
-            f'<div class="volt-rank-name"><strong>{escape(str(row["name"]))}</strong>{you}</div>'
-            f'<span class="volt-rank-score">{int(row["score"]):,}</span>'
-            "</div>"
-        )
-    return "".join(parts)
+    return "".join(_rank_html(row) for row in ranks)
+
+
+def _login_label(value: str | None) -> str:
+    if not value:
+        return "Not yet"
+    try:
+        when = datetime.fromisoformat(value)
+    except ValueError:
+        return "Not yet"
+    return f"{when.day} {when.strftime('%b')}"
+
+
+def _stat(label: str, value: int) -> str:
+    return (
+        '<div class="volt-stat">'
+        f"<strong>{value:,}</strong>"
+        f"<span>{escape(label)}</span>"
+        "</div>"
+    )
 
 
 def _colour_picker(prefix: str, field: str, label: str, default: str) -> str:
@@ -185,8 +206,6 @@ def render_coach_club(_user: dict) -> None:
     st.markdown(_club_card(club, yours=True), unsafe_allow_html=True)
     st.markdown('<p class="volt-kicker">COLOURS</p>', unsafe_allow_html=True)
     _club_editor("edit", "Save club", "PATCH", "/clubs/mine", club, "Club saved.")
-    st.markdown('<p class="volt-kicker">SQUAD</p>', unsafe_allow_html=True)
-    render_leaderboard(_user)
 
 
 def render_join_club(_user: dict) -> None:
@@ -238,6 +257,90 @@ def render_join_club(_user: dict) -> None:
                     st.rerun()
 
 
+def render_coach_home(_user: dict) -> None:
+    try:
+        stats = _api("GET", "/me/club/stats")
+    except _api_error() as exc:
+        st.error(exc.message)
+        return
+    club = stats.get("club")
+    if club is None:
+        st.markdown(
+            """
+            <div class="volt-card volt-lane">
+              <span class="volt-node" aria-hidden="true"></span>
+              <div>
+                <p class="volt-kicker">YOUR SQUAD</p>
+                <h2>Create a club first.</h2>
+                <p>Then you can see who is training, when they last signed in, and their points.</p>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("Set up your club", type="primary", key="coach_setup_club"):
+            st.session_state.coach_nav_pending = "Club"
+            st.rerun()
+        return
+    st.markdown(
+        f"""
+        <div class="volt-stat-grid">
+          {_stat("Players", int(stats.get("players") or 0))}
+          {_stat("Points", int(stats.get("points") or 0))}
+          {_stat("Signed in this week", int(stats.get("active_week") or 0))}
+          {_stat("Drills", int(stats.get("drills") or 0))}
+          {_stat("Clips", int(stats.get("clips") or 0))}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    roster = stats.get("roster") or []
+    if not roster:
+        st.info("No players have joined this club yet.")
+        return
+    st.markdown('<p class="volt-kicker">PLAYERS</p>', unsafe_allow_html=True)
+    rows = []
+    for row in roster:
+        rows.append(
+            '<div class="volt-roster">'
+            f'<strong>{escape(str(row["name"]))}</strong>'
+            f'<span>{int(row["points"]):,} pts</span>'
+            "<p>"
+            f'Last login {_login_label(row.get("last_login"))}'
+            f' · {int(row.get("drills") or 0)} drills'
+            f' · {int(row.get("clips") or 0)} clips'
+            "</p>"
+            "</div>"
+        )
+    st.markdown("".join(rows), unsafe_allow_html=True)
+
+
+def _confirm_remove(row: dict) -> None:
+    player_id = str(row["user_id"])
+    if st.session_state.get("coach_remove_id") != player_id:
+        return
+    name = str(row["name"])
+    st.markdown(
+        f'<p class="volt-sub">Remove {escape(name)} from the team?</p>',
+        unsafe_allow_html=True,
+    )
+    yes, no = st.columns(2)
+    with yes:
+        if st.button("Remove from team", type="primary", key=f"confirm_remove_{player_id}"):
+            try:
+                _api("DELETE", f"/clubs/mine/members/{player_id}")
+            except _api_error() as exc:
+                st.error(exc.message)
+                return
+            st.session_state.coach_remove_id = None
+            st.session_state.club_notice = f"{name} is off the team."
+            st.rerun()
+    with no:
+        if st.button("Cancel", key=f"cancel_remove_{player_id}"):
+            st.session_state.coach_remove_id = None
+            st.rerun()
+
+
 def render_leaderboard(user: dict) -> None:
     try:
         data = _api("GET", "/me/club/leaderboard")
@@ -265,9 +368,21 @@ def render_leaderboard(user: dict) -> None:
             return
         st.error(exc.message)
         return
+    _show_notice()
     ranks = data.get("ranks") or []
     if not ranks:
         st.info("No players have joined this club yet.")
         return
     st.caption("Ranked by Situational Coach, Positional Quiz, and clips.")
-    st.markdown(_ranks_html(ranks), unsafe_allow_html=True)
+    if user.get("account_type") != "coach_admin":
+        st.markdown(_ranks_html(ranks), unsafe_allow_html=True)
+        return
+    for row in ranks:
+        info, action = st.columns([4.2, 1.15], vertical_alignment="center")
+        with info:
+            st.markdown(_rank_html(row), unsafe_allow_html=True)
+        with action:
+            if st.button("Remove", key=f"remove_{row['user_id']}"):
+                st.session_state.coach_remove_id = str(row["user_id"])
+                st.rerun()
+        _confirm_remove(row)

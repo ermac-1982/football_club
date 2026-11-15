@@ -10,10 +10,12 @@ from club_service import (
     leaderboard,
     leave_club,
     ordered_ranks,
+    remove_player,
     search_clubs,
+    squad_stats,
     update_club,
 )
-from db import CoachAttempt, PlayerAvatar, SessionLocal, User, init_db
+from db import CoachAttempt, PlayerAvatar, SessionLocal, User, VideoWatch, init_db, utcnow
 
 
 class ClubRankTest(unittest.TestCase):
@@ -137,3 +139,42 @@ class ClubFlowTest(unittest.TestCase):
         with self.assertRaises(ClubError):
             leaderboard(self.db, ben)
         self.assertIsNone(club_for(self.db, ben))
+
+    def test_coach_sees_usage_and_can_remove_a_player(self):
+        coach = self._user("coach_admin", "Alex")
+        other = self._user("coach_admin", "Sam")
+        ava = self._user("player", "Ava")
+        ben = self._user("player", "Ben")
+        self._nickname(ava, "Ava")
+        ava.last_login_at = utcnow()
+        self.db.add(CoachAttempt(user_id=ava.id, scenario_id=1, score=100, result="correct"))
+        self.db.add(VideoWatch(user_id=ava.id, video_id="clip-1", points=200))
+        self.db.commit()
+
+        with self.assertRaises(ClubError):
+            squad_stats(self.db, ava)
+        empty = squad_stats(self.db, coach)
+        self.assertIsNone(empty["club"])
+        self.assertEqual(empty["players"], 0)
+
+        created = create_club(self.db, coach, "Volt United", "black", "lime")
+        other_club = create_club(self.db, other, "River City", "navy", "cyan")
+        join_club(self.db, ava, uuid.UUID(created["id"]))
+        join_club(self.db, ben, uuid.UUID(other_club["id"]))
+
+        stats = squad_stats(self.db, coach)
+        self.assertEqual(stats["players"], 1)
+        self.assertEqual(stats["points"], 300)
+        self.assertEqual(stats["drills"], 1)
+        self.assertEqual(stats["clips"], 1)
+        self.assertEqual(stats["active_week"], 1)
+        self.assertEqual(stats["roster"][0]["name"], "Ava")
+        self.assertIsNotNone(stats["roster"][0]["last_login"])
+
+        with self.assertRaises(ClubError):
+            remove_player(self.db, coach, ben.id)
+        with self.assertRaises(ClubError):
+            remove_player(self.db, ava, ava.id)
+        remove_player(self.db, coach, ava.id)
+        self.assertEqual(leaderboard(self.db, coach)["ranks"], [])
+        self.assertIsNone(club_for(self.db, ava))
