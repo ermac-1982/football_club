@@ -19,14 +19,14 @@ SECTIONS = [
         "title": "Stay compact",
         "kicker": "COMPACT",
         "mode": "positions",
-        "blurb": "Stay close enough for a short pass.",
+        "blurb": "Keep the passes short, and still use the width.",
     },
     {
         "id": "cover",
         "title": "Cover the space",
         "kicker": "COVER",
         "mode": "positions",
-        "blurb": "The far players tuck in and protect the middle.",
+        "blurb": "The far full-back tucks in. Everyone else keeps the width.",
     },
     {
         "id": "balance",
@@ -42,15 +42,26 @@ SECTION_CATEGORY = {section["id"]: section["id"] for section in SECTIONS}
 _ORDER = ("gk", "lb", "rb", "cdm", "lw", "rw", "st")
 _DEFEND_ORDER = ("dgk", "dr", "dl", "dcm", "drw", "dlw", "dst")
 
+# Their 2-3-1, seen from our goal. Their right side is on the left of the screen.
+STANDARD_231 = {
+    "dgk": (50, 96),
+    "dr": (20, 90),
+    "dl": (80, 90),
+    "drw": (10, 82),
+    "dcm": (50, 82),
+    "dlw": (90, 82),
+    "dst": (50, 70),
+}
+
 _DRILLS = [
     {
         "section": "diamond",
         "title": "Keeper's diamond",
         "difficulty": "easy",
-        "ball": ("gk", (50, 14)),
-        "places": {"lb": (32, 32), "rb": (68, 32), "cdm": (50, 48), "lw": (28, 64), "rw": (72, 64), "st": (50, 78)},
-        "desc": "Your keeper has the ball. Drag the other six into two diamonds.",
-        "why": "The left back, right back, and midfielder make a diamond with the keeper. The wingers and the striker make a second diamond in front of the midfielder.",
+        "ball": ("gk", (50, 12)),
+        "places": {"lb": (14, 28), "rb": (86, 28), "cdm": (50, 42), "lw": (12, 52), "rw": (88, 52), "st": (50, 60)},
+        "desc": "Your keeper has the ball. Drag the other six into two diamonds across the width of the pitch.",
+        "why": "The full-backs stay wide and the midfielder is the point of the first diamond. The wingers stay wide and the striker is the point of the second.",
         "mistake": "A flat line leaves the keeper with no easy pass at an angle.",
         "tip": "A diamond has a player behind the ball, one on each side, and one ahead.",
     },
@@ -58,10 +69,10 @@ _DRILLS = [
         "section": "diamond",
         "title": "Midfielder's diamond",
         "difficulty": "easy",
-        "ball": ("cdm", (50, 48)),
-        "places": {"gk": (50, 16), "lb": (34, 34), "rb": (66, 34), "lw": (32, 64), "rw": (68, 64), "st": (50, 76)},
-        "desc": "Your midfielder has the ball in the middle. Build a diamond around them.",
-        "why": "A defender sits each side behind the ball, a winger each side ahead of it, and the striker is the point. The keeper is the player behind the diamond.",
+        "ball": ("cdm", (50, 46)),
+        "places": {"gk": (50, 14), "lb": (16, 32), "rb": (84, 32), "lw": (12, 56), "rw": (88, 56), "st": (50, 60)},
+        "desc": "Your midfielder has the ball in the middle. Build a wide diamond around them.",
+        "why": "Full-backs stay wide behind the ball, wingers stay wide ahead of it, and the striker is the point. The keeper is the player behind the diamond.",
         "mistake": "Standing in a row beside the ball blocks the pass.",
         "tip": "Around the ball: one behind, one each side, and one ahead.",
     },
@@ -69,10 +80,10 @@ _DRILLS = [
         "section": "diamond",
         "title": "Diamond on the wing",
         "difficulty": "medium",
-        "ball": ("rw", (78, 62)),
-        "places": {"gk": (50, 16), "lb": (28, 34), "rb": (70, 44), "cdm": (58, 54), "lw": (30, 58), "st": (62, 76)},
-        "desc": "Your right winger has the ball near the side. Make a diamond on that side.",
-        "why": "The right back is behind the ball, the midfielder is inside, and the striker is ahead. That is the diamond. The left side stays in its own lane.",
+        "ball": ("rw", (90, 54)),
+        "places": {"gk": (50, 14), "lb": (16, 30), "rb": (76, 40), "cdm": (64, 46), "lw": (14, 50), "st": (72, 60)},
+        "desc": "Your right winger has the ball on the touchline. Make a diamond there, and keep the left side wide.",
+        "why": "The right back is behind the ball, the midfielder is inside, and the striker is ahead. The left back and left winger stay in the wide left lane.",
         "mistake": "Everyone rushing to the ball crowds the winger.",
         "tip": "On the wing, the diamond is behind, inside, and ahead of the ball.",
     },
@@ -80,10 +91,10 @@ _DRILLS = [
         "section": "diamond",
         "title": "Striker's diamond",
         "difficulty": "medium",
-        "ball": ("st", (50, 76)),
-        "places": {"gk": (50, 16), "lb": (34, 36), "rb": (66, 36), "cdm": (50, 52), "lw": (32, 64), "rw": (68, 64)},
-        "desc": "Your striker has the ball near the other goal. Put a diamond behind them.",
-        "why": "Both wingers sit just behind the striker, with the midfielder behind them. The defenders and the keeper hold the rest of the shape.",
+        "ball": ("st", (50, 60)),
+        "places": {"gk": (50, 14), "lb": (16, 30), "rb": (84, 30), "cdm": (50, 42), "lw": (14, 50), "rw": (86, 50)},
+        "desc": "Your striker has the ball. Put a wide diamond behind them.",
+        "why": "Both wingers stay wide just behind the striker, with the midfielder behind them. The full-backs stay wide too.",
         "mistake": "Joining the striker in a bunch leaves no pass back.",
         "tip": "When the striker has the ball, the next diamond is just behind them.",
     },
@@ -91,32 +102,32 @@ _DRILLS = [
         "section": "compact",
         "title": "Stay close to the keeper",
         "difficulty": "easy",
-        "ball": ("gk", (50, 14)),
-        "places": {"lb": (38, 28), "rb": (62, 28), "cdm": (50, 40), "lw": (36, 50), "rw": (64, 50), "st": (50, 60)},
-        "desc": "Your keeper has the ball. The team is too spread out. Pull the other six in.",
-        "why": "Everyone stays in your own half, close enough for a short pass. The striker does not wait on the halfway line.",
-        "mistake": "A teammate on the halfway line is too far for a short pass from the keeper.",
-        "tip": "Compact means a teammate can receive a short pass.",
+        "ball": ("gk", (50, 12)),
+        "places": {"lb": (16, 24), "rb": (84, 24), "cdm": (50, 34), "lw": (14, 42), "rw": (86, 42), "st": (50, 50)},
+        "desc": "Your keeper has the ball. Bring the lines closer, and keep the team wide.",
+        "why": "Full-backs and wingers stay near the sides. The lines are close enough for the keeper to play a short pass.",
+        "mistake": "A big gap between the lines makes the pass too long. Bunching in the middle wastes the width.",
+        "tip": "Short passes, wide players.",
     },
     {
         "section": "compact",
         "title": "Slide together",
         "difficulty": "medium",
-        "ball": ("lw", (24, 58)),
-        "places": {"gk": (40, 16), "lb": (26, 40), "rb": (48, 38), "cdm": (38, 50), "rw": (46, 66), "st": (36, 72)},
-        "desc": "Your left winger has the ball. Slide the team across and stay close.",
-        "why": "The right winger and the right back come across. Nobody is left on the far side, too far to help.",
-        "mistake": "Leaving a player on the far touchline makes the team too wide.",
-        "tip": "When the ball moves, the whole team moves with it.",
+        "ball": ("lw", (12, 52)),
+        "places": {"gk": (42, 14), "lb": (18, 32), "rb": (74, 30), "cdm": (40, 42), "rw": (82, 50), "st": (36, 58)},
+        "desc": "Your left winger has the ball on the touchline. Slide across, and keep a player on the far side.",
+        "why": "The team slides toward the ball. The right back and right winger still hold the right side, so the team uses the width.",
+        "mistake": "Everyone crowding the ball leaves the far side empty.",
+        "tip": "Move with the ball, and keep the team wide.",
     },
     {
         "section": "compact",
         "title": "No big gaps",
         "difficulty": "medium",
-        "ball": ("cdm", (50, 48)),
-        "places": {"gk": (50, 16), "lb": (36, 34), "rb": (64, 34), "lw": (36, 62), "rw": (64, 62), "st": (50, 72)},
-        "desc": "Your midfielder has the ball. Close the gaps between the lines.",
-        "why": "Defenders, midfielder, wingers, and striker sit in even steps. A big hole between them is where the other team steps in.",
+        "ball": ("cdm", (50, 44)),
+        "places": {"gk": (50, 14), "lb": (16, 28), "rb": (84, 28), "lw": (14, 50), "rw": (86, 50), "st": (50, 58)},
+        "desc": "Your midfielder has the ball. Close the gaps between the lines, and keep the width.",
+        "why": "Full-backs and wingers stay wide. The lines sit in even steps, with no big hole between them.",
         "mistake": "A gap between the defenders and the striker is an easy place to lose the ball.",
         "tip": "If you can see a big empty patch between your players, move someone into it.",
     },
@@ -124,43 +135,43 @@ _DRILLS = [
         "section": "compact",
         "title": "Compact near the goal",
         "difficulty": "hard",
-        "ball": ("rw", (76, 70)),
-        "places": {"gk": (50, 18), "lb": (46, 42), "rb": (68, 52), "cdm": (60, 58), "lw": (52, 68), "st": (64, 80)},
-        "desc": "Your right winger has the ball by the box. Bring the attack in tight.",
-        "why": "The striker, the left winger, and the midfielder stay close to the ball. The defenders step up, and the keeper stays back.",
-        "mistake": "Spreading across the box makes the pass too far.",
-        "tip": "Near the goal, short passes need a tight shape.",
+        "ball": ("rw", (88, 56)),
+        "places": {"gk": (50, 16), "lb": (20, 32), "rb": (74, 42), "cdm": (60, 46), "lw": (16, 48), "st": (68, 58)},
+        "desc": "Your right winger has the ball high and wide. The near players stay close enough to pass, and the left side holds the width.",
+        "why": "The right back, midfielder, and striker are close to the ball. The left back and left winger stay wide on the far side.",
+        "mistake": "Bunching the whole team around the ball leaves the far side empty.",
+        "tip": "Help the ball from nearby, and keep a player on the other wing.",
     },
     {
         "section": "cover",
         "title": "Tuck the far back",
         "difficulty": "easy",
-        "ball": ("lw", (18, 60)),
-        "places": {"gk": (46, 16), "lb": (26, 42), "rb": (54, 40), "cdm": (40, 50), "rw": (56, 64), "st": (42, 74)},
-        "desc": "The ball is with your left winger. Your right side is too wide.",
-        "why": "The right back slides into the middle to cover the goal. The right winger tucks in too. The near players stay close to the ball.",
-        "mistake": "A right back who stays wide leaves the middle open.",
+        "ball": ("lw", (12, 52)),
+        "places": {"gk": (46, 14), "lb": (18, 34), "rb": (58, 32), "cdm": (40, 44), "rw": (82, 50), "st": (34, 58)},
+        "desc": "The ball is with your left winger. The far full-back is still stuck on the touchline.",
+        "why": "The right back slides inside to cover the middle. The right winger stays wide. The near players stay close to the ball.",
+        "mistake": "A right back who stays on the touchline leaves the middle open.",
         "tip": "The defender farthest from the ball tucks in and protects the middle.",
     },
     {
         "section": "cover",
         "title": "Cover from the left",
         "difficulty": "medium",
-        "ball": ("rw", (82, 60)),
-        "places": {"gk": (54, 16), "lb": (46, 40), "rb": (74, 42), "cdm": (60, 50), "lw": (44, 64), "st": (58, 74)},
-        "desc": "Your right winger has the ball. Cover the middle from the left.",
-        "why": "The left back and the left winger come inside, between the ball and your goal. They can stop a break if the ball is lost.",
-        "mistake": "Staying wide on the far side leaves the path to your goal empty.",
+        "ball": ("rw", (88, 54)),
+        "places": {"gk": (54, 14), "lb": (42, 32), "rb": (76, 40), "cdm": (62, 46), "lw": (18, 48), "st": (68, 58)},
+        "desc": "Your right winger has the ball. Cover the middle from the left, and keep a player wide.",
+        "why": "The left back tucks inside to cover the goal. The left winger stays wide. The right back and striker support the ball.",
+        "mistake": "If the far full-back stays on the touchline, the path to your goal is open.",
         "tip": "Cover means being between the ball and your own goal.",
     },
     {
         "section": "cover",
         "title": "Protect the middle",
         "difficulty": "medium",
-        "ball": ("lb", (30, 36)),
-        "places": {"gk": (50, 14), "rb": (62, 32), "cdm": (48, 48), "lw": (28, 56), "rw": (66, 58), "st": (50, 72)},
-        "desc": "Your left back has the ball. The middle of the pitch must not be empty.",
-        "why": "The midfielder moves into the centre, in front of your goal. The right back holds the other side of that space.",
+        "ball": ("lb", (16, 32)),
+        "places": {"gk": (50, 14), "rb": (84, 30), "cdm": (50, 44), "lw": (14, 50), "rw": (86, 50), "st": (50, 58)},
+        "desc": "Your left back has the ball, wide on the left. The middle must not be empty, and the right side stays wide.",
+        "why": "The midfielder covers the centre. The right back and right winger hold the far side so the team still uses the width.",
         "mistake": "If the middle is empty, one pass can split the team.",
         "tip": "When a defender has the ball, a midfielder covers the middle.",
     },
@@ -168,10 +179,10 @@ _DRILLS = [
         "section": "cover",
         "title": "Numbers behind the ball",
         "difficulty": "hard",
-        "ball": ("st", (58, 76)),
-        "places": {"gk": (50, 16), "lb": (34, 40), "rb": (66, 40), "cdm": (52, 56), "lw": (40, 64), "rw": (74, 66)},
-        "desc": "Your striker has the ball near goal. Keep players behind the ball.",
-        "why": "The midfielder, both defenders, and the keeper stay closer to your goal than the ball. If the move breaks down, they are already covering.",
+        "ball": ("st", (50, 60)),
+        "places": {"gk": (50, 14), "lb": (16, 30), "rb": (84, 30), "cdm": (50, 42), "lw": (14, 50), "rw": (86, 50)},
+        "desc": "Your striker has the ball. Keep players behind the ball, and keep them wide.",
+        "why": "The wingers, midfielder, full-backs, and keeper all stay closer to your goal than the ball. The wingers and full-backs still use the sides.",
         "mistake": "Everyone rushing past the ball leaves nothing behind it.",
         "tip": "Keep more players behind the ball than ahead of it.",
     },
@@ -179,43 +190,43 @@ _DRILLS = [
         "section": "balance",
         "title": "The full shape",
         "difficulty": "medium",
-        "ball": ("gk", (50, 14)),
-        "places": {"lb": (34, 32), "rb": (66, 32), "cdm": (50, 46), "lw": (32, 60), "rw": (68, 60), "st": (50, 74)},
-        "desc": "Your keeper has the ball. Make the diamonds, keep them close, and cover the middle.",
-        "why": "Two diamonds, short gaps, and the defenders narrow enough to protect the goal.",
-        "mistake": "A stretched team loses the diamond and the cover at the same time.",
+        "ball": ("gk", (50, 12)),
+        "places": {"lb": (14, 28), "rb": (86, 28), "cdm": (50, 42), "lw": (12, 52), "rw": (88, 52), "st": (50, 60)},
+        "desc": "Your keeper has the ball. Make two wide diamonds, with short gaps between the lines.",
+        "why": "Full-backs and wingers use the width. The midfielder and striker are the points of the two diamonds, close enough to pass to.",
+        "mistake": "A narrow shape wastes the sides. A huge gap between the lines makes the pass too long.",
         "tip": "Diamond, compact, cover. Check all three.",
     },
     {
         "section": "balance",
         "title": "Wide, but compact",
         "difficulty": "medium",
-        "ball": ("rw", (80, 62)),
-        "places": {"gk": (52, 16), "lb": (44, 36), "rb": (70, 44), "cdm": (60, 52), "lw": (48, 62), "st": (64, 76)},
-        "desc": "The ball is wide on the right. Make a diamond there, and keep the rest of the team close.",
-        "why": "The right back is behind, the midfielder is inside, and the striker is ahead. The left players slide across so the team stays compact and the middle is covered.",
-        "mistake": "A diamond on the wing, with the other players stuck wide, is still a broken shape.",
-        "tip": "Build the diamond beside the ball, then check the far side has come across.",
+        "ball": ("rw", (90, 54)),
+        "places": {"gk": (52, 14), "lb": (22, 30), "rb": (76, 40), "cdm": (64, 46), "lw": (16, 48), "st": (70, 58)},
+        "desc": "The ball is on the right touchline. Make a diamond there, and keep the left side wide.",
+        "why": "The right back is behind, the midfielder is inside, and the striker is ahead. The left back and left winger hold the far side.",
+        "mistake": "Everyone rushing to the ball leaves the left side empty.",
+        "tip": "Build the diamond beside the ball, and keep a player on the far wing.",
     },
     {
         "section": "balance",
         "title": "Wide left, cover in",
         "difficulty": "hard",
-        "ball": ("lw", (20, 62)),
-        "places": {"gk": (48, 16), "lb": (28, 44), "rb": (56, 38), "cdm": (40, 52), "rw": (54, 64), "st": (36, 76)},
-        "desc": "The ball is wide on the left. Diamond on that side, and cover in the middle.",
-        "why": "The left back is behind the ball, the midfielder is inside, and the striker is ahead. The right back tucks into the middle to cover.",
-        "mistake": "The far defender staying wide leaves the goal unprotected.",
-        "tip": "Far from the ball means tuck in, not stay wide.",
+        "ball": ("lw", (12, 52)),
+        "places": {"gk": (48, 14), "lb": (20, 36), "rb": (60, 32), "cdm": (42, 44), "rw": (82, 50), "st": (36, 58)},
+        "desc": "The ball is on the left touchline. Diamond on that side, cover in the middle, and keep the right winger wide.",
+        "why": "The left back is behind the ball, the midfielder is inside, and the striker is ahead. The right back tucks in to cover. The right winger stays wide.",
+        "mistake": "The far full-back staying on the touchline leaves the middle open.",
+        "tip": "Tuck the far full-back in. Leave the far winger wide.",
     },
     {
         "section": "balance",
         "title": "Attack and leave cover",
         "difficulty": "hard",
-        "ball": ("st", (54, 76)),
-        "places": {"gk": (50, 16), "lb": (32, 38), "rb": (64, 36), "cdm": (50, 54), "lw": (36, 64), "rw": (68, 66)},
-        "desc": "Your striker has the ball in the box. Join in, but leave a cover behind.",
-        "why": "The wingers make the diamond just behind the striker. The midfielder and the defenders stay behind the ball, so a lost ball is not a free run at goal.",
+        "ball": ("st", (50, 60)),
+        "places": {"gk": (50, 14), "lb": (16, 28), "rb": (84, 28), "cdm": (50, 42), "lw": (14, 50), "rw": (86, 50)},
+        "desc": "Your striker has the ball. Join with a wide diamond, and leave the full-backs behind.",
+        "why": "The wingers stay wide just behind the striker. The midfielder and both full-backs stay behind the ball, still using the width.",
         "mistake": "Six players in the box leaves the keeper alone.",
         "tip": "Attack with a diamond, and always leave players behind the ball.",
     },
@@ -230,26 +241,8 @@ def _dist(a: tuple[float, float], b: tuple[float, float]) -> float:
     return math.hypot(a[0] - b[0], a[1] - b[1])
 
 
-_DEFEND_SLOTS = ((50, 94), (16, 86), (84, 86), (34, 90), (66, 90), (8, 94), (92, 94))
-
-
-def _free_spot(x: float, y: float, blocked: list[tuple[float, float]]) -> tuple[float, float]:
-    for radius in (0, 12, 18, 24):
-        for angle in range(0, 360, 20):
-            rad = math.radians(angle)
-            spot = (_clamp(x + radius * math.cos(rad), 8, 94), _clamp(y + radius * math.sin(rad) * 0.35, 82, 94))
-            if all(_dist(spot, other) >= 11 for other in blocked):
-                return spot
-    return (_clamp(x), _clamp(y, 82, 94))
-
-
-def _opponents(blocked: list[tuple[float, float]]) -> dict[str, tuple[float, float]]:
-    chosen = []
-    keys = ("dgk", "dl", "dr", "dcm", "dlw", "drw", "dst")
-    for key, (x, y) in zip(keys, _DEFEND_SLOTS):
-        spot = _free_spot(x, y, blocked + chosen)
-        chosen.append(spot)
-    return dict(zip(keys, chosen))
+def _opponents() -> dict[str, tuple[float, float]]:
+    return {pid: (float(x), float(y)) for pid, (x, y) in STANDARD_231.items()}
 
 
 def _starts(
@@ -305,7 +298,7 @@ def _build_one(drill: dict, scenario_id: int) -> dict:
         raise RuntimeError(f"{drill['title']} needs the other six players")
     attack = dict(correct)
     attack[carrier] = (float(ball_at[0]), float(ball_at[1]))
-    defend = _opponents([attack[carrier], *correct.values()])
+    defend = _opponents()
     starts = _starts(correct, [attack[carrier], *defend.values()])
     shown = dict(starts)
     shown[carrier] = attack[carrier]

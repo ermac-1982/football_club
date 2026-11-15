@@ -6,7 +6,7 @@ import math
 from typing import Optional
 
 from coach_engine import SECTION_BONUS, label_for, result_for
-from position_scenarios import SECTIONS, load_scenarios
+from position_scenarios import SECTIONS, STANDARD_231, load_scenarios
 
 BANDS = ((7, 100), (12, 75), (17, 50), (22, 25))
 PRIVATE_FIELDS = {
@@ -325,6 +325,14 @@ def validate_library() -> list[str]:
         score, marks = positions_score(perfect, scenario)
         if score != 100 or any(mark != 100 for mark in marks.values()):
             problems.append(f"{scenario['id']} perfect score {score}")
+        for player in scenario["defendingPlayers"]:
+            expected = STANDARD_231[player["id"]]
+            if abs(player["x"] - expected[0]) > 0.2 or abs(player["y"] - expected[1]) > 0.2:
+                problems.append(f"{scenario['id']} {player['id']} is not in the 2-3-1")
+        shape_x = [float(carrier_player["x"])]
+        shape_x.extend(float(spot["x"]) for spot in scenario["correctPositions"].values())
+        if min(shape_x) > 20 or max(shape_x) < 80 or max(shape_x) - min(shape_x) < 64:
+            problems.append(f"{scenario['id']} width {min(shape_x):.0f}-{max(shape_x):.0f}")
     if any(len(rows) != 4 for rows in by_section.values()):
         problems.append(f"section sizes {[len(rows) for rows in by_section.values()]}")
     return problems
