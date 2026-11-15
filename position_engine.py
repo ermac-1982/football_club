@@ -329,6 +329,25 @@ def validate_library() -> list[str]:
             expected = STANDARD_231[player["id"]]
             if abs(player["x"] - expected[0]) > 0.2 or abs(player["y"] - expected[1]) > 0.2:
                 problems.append(f"{scenario['id']} {player['id']} is not in the 2-3-1")
+        answer = [{"id": carrier, "x": carrier_player["x"], "y": carrier_player["y"]}]
+        answer.extend(
+            {"id": pid, "x": spot["x"], "y": spot["y"]}
+            for pid, spot in scenario["correctPositions"].items()
+        )
+        for index, player in enumerate(answer):
+            for other in answer[index + 1 :]:
+                gap = _distance(player, other)
+                if gap < 18:
+                    problems.append(
+                        f"{scenario['id']} {player['id']} bunches {other['id']} ({gap:.1f})"
+                    )
+        for pid, spot in scenario["correctPositions"].items():
+            for defender in scenario["defendingPlayers"]:
+                gap = _distance(spot, defender)
+                if gap < 14:
+                    problems.append(
+                        f"{scenario['id']} {pid} is marked by {defender['id']} ({gap:.1f})"
+                    )
         shape_x = [float(carrier_player["x"])]
         shape_x.extend(float(spot["x"]) for spot in scenario["correctPositions"].values())
         if min(shape_x) > 20 or max(shape_x) < 80 or max(shape_x) - min(shape_x) < 64:
